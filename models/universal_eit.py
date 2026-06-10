@@ -365,10 +365,10 @@ class UniversalPhantomGenerator:
         angle = np.random.uniform(0, 2 * np.pi)
         direction = np.array([np.cos(angle), np.sin(angle)])
 
-        # 沿方向的梯度
-        projection = self.centers @ direction
+        # 沿方向的梯度 (centers shape: n_elems x 2)
+        projection = self.centers[:, :2] @ direction  # 只取前两列(x, y)
         sigma = self.sigma_bg + (self.sigma_inc - self.sigma_bg) * \
-                (projection - projection.min()) / (projection.max() - projection.min())
+                (projection - projection.min()) / (projection.max() - projection.min() + 1e-8)
 
         return sigma
 

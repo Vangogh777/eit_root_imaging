@@ -6,19 +6,19 @@ model:
   name: "sf_sblc_v1"
   input_dim: 256             # 单频测量电压维度（取决于电极数×模式）
   n_frequencies: 6           # 频率数（与 mesh_config 一致）
-  hidden_dim: 512
-  n_res_blocks: 8            # 残差块数
+  hidden_dim: 256            # 降低隐藏层维度 (原512)
+  n_res_blocks: 4            # 减少残差块数 (原8)
   dropout: 0.1
-  use_attention: true
+  use_attention: false       # 关闭注意力 (原true)
 
 training:
-  batch_size: 32
-  epochs: 200
+  batch_size: 16              # 降低batch size (原32)
+  epochs: 50                  # 减少epochs (原200)
   learning_rate: 1e-3
   lr_scheduler: "cosine"     # cosine / step / plateau
   weight_decay: 1e-5
   grad_clip: 1.0
-  warmup_epochs: 10
+  warmup_epochs: 5           # 减少warmup (原10)
 
   # 损失函数权重
   loss_weights:

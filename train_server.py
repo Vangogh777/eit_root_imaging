@@ -1,0 +1,237 @@
+"""
+服务器训练脚本
+==============
+完整训练配置，用于GPU服务器
+
+用法:
+    python train_server.py                    # 默认配置
+    python train_server.py --n_train 20000    # 自定义样本数
+    python train_server.py --model physics    # 使用物理信息增强模型
+"""
+
+import os
+import sys
+import argparse
+import torch
+import numpy as np
+from tqdm import tqdm
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from data.eit_forward import EITForwardSolver
+from models.simple_model import SimpleSFSBLC
+from models.universal_eit import PhysicsInformedEIT, UniversalPhantomGenerator
+
+def main():
+    parser = argparse.ArgumentParser(description="服务器训练脚本")
+    parser.add_argument("--n_train", type=int, default=5000, help="训练样本数")
+    parser.add_argument("--n_val", type=int, default=500, help="验证样本数")
+    parser.add_argument("--epochs", type=int, default=100, help="训练轮数")
+    parser.add_argument("--batch_size", type=int, default=32, help="批大小")
+    parser.add_argument("--lr", type=float, default=1e-3, help="学习率")
+    parser.add_argument("--model", type=str, default="simple", choices=["simple", "physics"], help="模型类型")
+    parser.add_argument("--output", type=str, default="checkpoints/server_model.pt", help="输出路径")
+    args = parser.parse_args()
+
+    print("=" * 60)
+    print("🖥️  服务器训练")
+    print("=" * 60)
+
+    # 检查设备
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"\n设备: {device}")
+    if device.type == 'cuda':
+        print(f"✅ GPU: {torch.cuda.get_device_name(0)}")
+        print(f"   显存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+
+    # ============ 配置 ============
+    print(f"\n配置:")
+    print(f"  训练样本: {args.n_train}")
+    print(f"  验证样本: {args.n_val}")
+    print(f"  训练轮数: {args.epochs}")
+    print(f"  批大小: {args.batch_size}")
+    print(f"  学习率: {args.lr}")
+    print(f"  模型: {args.model}")
+
+    # ============ 1. 初始化求解器 ============
+    print("\n[1/5] 初始化 EIT 求解器...")
+    solver = EITForwardSolver("config/mesh_config.yaml")
+    n_elems = solver.n_elems
+    n_freq = len(solver.frequencies)
+    n_meas = solver.n_measurements
+    print(f"  网格: {n_elems} 单元, {n_freq} 频率, {n_meas} 测量通道")
+
+    # ============ 2. 生成数据 ============
+    print("\n[2/5] 生成数据集...")
+
+    phantom_gen = UniversalPhantomGenerator(
+        solver.mesh.node,
+        solver.mesh.element,
+        domain_radius=solver.cfg['mesh']['radius'],
+        sigma_background=0.01,
+        sigma_inclusion=0.05
+    )
+
+    def generate_sample(seed):
+        sigma = phantom_gen.generate_random(seed=seed)
+        V = solver.solve_multi_frequency(sigma)
+        if np.isnan(V).any():
+            V = np.random.randn(n_freq, n_meas).astype(np.float32) * 1e-6
+        V_noisy = solver.add_noise(V, noise_db=np.random.uniform(-40, -20))
+        return sigma.astype(np.float32), V_noisy.astype(np.float32)
+
+    # 生成训练数据
+    print(f"  生成 {args.n_train} 训练样本...")
+    train_sigmas, train_voltages = [], []
+    for i in tqdm(range(args.n_train)):
+        sigma, V = generate_sample(seed=i)
+        train_sigmas.append(sigma)
+        train_voltages.append(V)
+    train_sigmas = np.stack(train_sigmas)
+    train_voltages = np.stack(train_voltages)
+
+    # 生成验证数据
+    print(f"  生成 {args.n_val} 验证样本...")
+    val_sigmas, val_voltages = [], []
+    for i in tqdm(range(args.n_val)):
+        sigma, V = generate_sample(seed=args.n_train + i)
+        val_sigmas.append(sigma)
+        val_voltages.append(V)
+    val_sigmas = np.stack(val_sigmas)
+    val_voltages = np.stack(val_voltages)
+
+    print(f"  训练: {train_sigmas.shape}, 验证: {val_sigmas.shape}")
+
+    # ============ 3. 构建模型 ============
+    print("\n[3/5] 构建模型...")
+
+    if args.model == "simple":
+        model = SimpleSFSBLC(
+            input_dim=n_meas,
+            hidden_dim=512,
+            n_frequencies=n_freq,
+            n_elems=n_elems,
+        ).to(device)
+    else:  # physics
+        model = PhysicsInformedEIT(
+            input_dim=n_meas,
+            hidden_dim=512,
+            n_frequencies=n_freq,
+            n_elems=n_elems,
+            use_jacobian_prior=True,
+        ).to(device)
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"  参数量: {total_params:,}")
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+
+    # ============ 4. 训练 ============
+    print("\n[4/5] 开始训练...")
+
+    train_V = torch.from_numpy(train_voltages).float().to(device)
+    train_S = torch.from_numpy(train_sigmas).float().to(device)
+    val_V = torch.from_numpy(val_voltages).float().to(device)
+    val_S = torch.from_numpy(val_sigmas).float().to(device)
+
+    best_val_re = float('inf')
+    history = []
+
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        perm = torch.randperm(args.n_train)
+
+        epoch_loss = 0.0
+        n_batches = (args.n_train + args.batch_size - 1) // args.batch_size
+
+        for b in range(n_batches):
+            idx = perm[b*args.batch_size:(b+1)*args.batch_size]
+            V_batch = train_V[idx]
+            S_batch = train_S[idx]
+
+            optimizer.zero_grad()
+
+            if args.model == "simple":
+                out = model(V_batch)
+                loss = torch.nn.functional.mse_loss(out['sigma'], S_batch)
+            else:
+                out = model(V_batch)
+                loss = torch.nn.functional.mse_loss(out['sigma'], S_batch)
+
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            epoch_loss += loss.item()
+
+        epoch_loss /= n_batches
+        scheduler.step()
+
+        # 验证
+        model.eval()
+        with torch.no_grad():
+            if args.model == "simple":
+                val_out = model(val_V)
+            else:
+                val_out = model(val_V)
+
+            val_loss = torch.nn.functional.mse_loss(val_out['sigma'], val_S).item()
+            re = torch.norm(val_out['sigma'] - val_S, dim=-1) / (torch.norm(val_S, dim=-1) + 1e-8)
+            val_re = re.mean().item()
+
+        history.append({'epoch': epoch, 'loss': epoch_loss, 'val_loss': val_loss, 'val_re': val_re})
+
+        # 打印
+        lr = optimizer.param_groups[0]['lr']
+        print(f"  Epoch {epoch:3d}/{args.epochs} | Loss: {epoch_loss:.6f} | "
+              f"Val: {val_loss:.6f} | RE: {val_re:.4f} | LR: {lr:.6f}")
+
+        # 保存最佳模型
+        if val_re < best_val_re:
+            best_val_re = val_re
+            best_state = model.state_dict().copy()
+            best_epoch = epoch
+
+    # 加载最佳模型
+    model.load_state_dict(best_state)
+
+    # ============ 5. 测试 ============
+    print("\n[5/5] 测试重建质量...")
+    model.eval()
+
+    with torch.no_grad():
+        if args.model == "simple":
+            out = model(val_V[:8])
+        else:
+            out = model(val_V[:8])
+
+        for i in range(8):
+            re_i = torch.norm(out['sigma'][i] - val_S[i]) / (torch.norm(val_S[i]) + 1e-8)
+            print(f"  样本 {i}: RE = {re_i.item():.4f}")
+
+    # ============ 完成 ============
+    print("\n" + "=" * 60)
+    print("✅ 训练完成!")
+    print("=" * 60)
+    print(f"📊 最佳验证相对误差: {best_val_re:.4f} (Epoch {best_epoch})")
+    print(f"📊 模型参数量: {total_params:,}")
+
+    # 保存模型
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'model_type': args.model,
+        'config': {
+            'n_elems': n_elems,
+            'n_freq': n_freq,
+            'n_meas': n_meas,
+            'hidden_dim': 512,
+        },
+        'history': history,
+        'best_val_re': best_val_re,
+        'best_epoch': best_epoch,
+    }, args.output)
+    print(f"💾 模型已保存: {args.output}")
+
+if __name__ == "__main__":
+    main()

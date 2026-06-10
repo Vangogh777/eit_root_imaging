@@ -44,8 +44,10 @@ class SimpleSFSBLC(nn.Module):
             nn.Linear(hidden_dim, hidden_dim * 2),
             nn.GELU(),
             nn.Linear(hidden_dim * 2, n_elems),
-            nn.Softplus(),  # 确保输出为正（电导率）
         )
+
+        # 输出范围：电导率约 0.01-0.05，使用 sigmoid 缩放到合理范围
+        self.output_scale = nn.Parameter(torch.tensor([0.02]))  # 可学习的缩放因子
 
     def forward(self, voltages: torch.Tensor) -> dict:
         """
@@ -67,7 +69,12 @@ class SimpleSFSBLC(nn.Module):
         h = self.res_blocks(h)  # (B, hidden_dim)
 
         # 解码
-        sigma = self.decoder(h)  # (B, n_elems)
+        sigma_raw = self.decoder(h)  # (B, n_elems)
+
+        # 使用sigmoid缩放到合理范围 [0.005, 0.1]
+        # sigmoid输出[0,1]，缩放到[sigma_min, sigma_max]
+        sigma_min, sigma_max = 0.005, 0.1
+        sigma = torch.sigmoid(sigma_raw) * (sigma_max - sigma_min) + sigma_min
 
         return {'sigma': sigma}
 
