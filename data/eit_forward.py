@@ -3,6 +3,8 @@ pyEIT 正问题求解器（桶式 2D EIT）
 ====================================
 硬件对应：圆柱形桶，单环16电极，2D截面成像。
 封装了网格创建 → 电极配置 → 多频正向仿真 → 噪声注入 → 电压输出全流程。
+
+注意: pyEIT 1.2.4 版本兼容
 """
 
 import os
@@ -11,10 +13,10 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 
-# pyEIT 核心模块
+# pyEIT 核心模块 (1.2.4 API)
 from pyeit.mesh import create, PyEITMesh
-from pyeit.eit.fem import forward as fem_forward
-from pyeit.eit.utils import eit_scan_lines
+from pyeit.eit.fem import EITForward
+from pyeit.eit.protocol import create as create_protocol, PyEITProtocol
 
 
 @dataclass
@@ -43,7 +45,7 @@ class EITForwardSolver:
     """
 
     def __init__(self, config_path: str = "config/mesh_config.yaml"):
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             self.cfg = yaml.safe_load(f)
 
         mesh_cfg = self.cfg['mesh']
@@ -58,33 +60,37 @@ class EITForwardSolver:
 
         # --- 1. 创建 2D 圆形网格（桶截面） ---
         self.mesh: PyEITMesh = self._create_mesh(mesh_cfg, elec_cfg)
-        self.n_elems = self.mesh['element'].shape[0]
-        self.n_nodes = self.mesh['node'].shape[0]
+        self.n_elems = self.mesh.element.shape[0]
+        self.n_nodes = self.mesh.node.shape[0]
 
-        # --- 2. 预计算扫描协议 ---
-        # pyEIT 返回: (n_stim, n_el) 的激励-测量配对
+        # --- 2. 创建扫描协议 ---
+        # pyEIT 1.2.4 使用 protocol.create() 创建 PyEITProtocol 对象
         if self.pattern == 'adjacent':
-            self.protocol = eit_scan_lines(self.n_el, 16)
+            self.protocol: PyEITProtocol = create_protocol(
+                n_el=self.n_el,
+                dist_exc=1,      # 相邻激励
+                step_meas=1,     # 相邻测量
+                parser_meas="std"
+            )
         else:
             raise ValueError(f"不支持的激励模式: {self.pattern}")
-        self.n_measurements = self.protocol.shape[0]
 
-        # --- 3. 预计算 FEM 正问题算子（各频率独立） ---
-        self._forward_ops = {}
-        for f in self.frequencies:
-            op = fem_forward(self.mesh, self.protocol, f)
-            self._forward_ops[f] = op
+        # n_measurements = n_exc * n_meas_per_exc
+        self.n_measurements = self.protocol.n_meas_tot
+
+        # --- 3. 创建 FEM 正问题求解器 ---
+        # pyEIT 1.2.4: EITForward(mesh, protocol), 不需要频率参数
+        self._forward_op = EITForward(self.mesh, self.protocol)
 
         # --- 4. 缓存均匀场电导率的参考电压（用于差分EIT） ---
         self.sigma_uniform = np.full(self.n_elems, self.gt_cfg['conductivity_soil'])
-        self.V_uniform = {}  # 各频率下的均匀场电压
-        for f in self.frequencies:
-            op = self._forward_ops[f]
-            self.V_uniform[f] = op.solve(self.sigma_uniform)[1]
+        # solve_eit 返回 (n_measurements,) 的边界电压
+        self.V_uniform = self._forward_op.solve_eit(self.sigma_uniform)
 
         print(f"[EITForwardSolver] 网格: {self.n_elems} 单元, {self.n_nodes} 节点")
         print(f"[EITForwardSolver] 电极: {self.n_el} | 测量: {self.n_measurements}")
-        print(f"[EITForwardSolver] 频率: {self.frequencies} Hz")
+        print(f"[EITForwardSolver] 激励数: {self.protocol.n_exc} | 每激励测量: {self.protocol.n_meas}")
+        print(f"[EITForwardSolver] 频率: {self.frequencies} Hz (注: pyEIT 1.2.4 不区分频率)")
 
     def _create_mesh(self, mesh_cfg: dict, elec_cfg: dict) -> PyEITMesh:
         """创建 2D 圆形网格（桶截面）"""
@@ -106,8 +112,8 @@ class EITForwardSolver:
     @property
     def element_centers(self) -> np.ndarray:
         """返回每个三角单元的中心坐标 (n_elems, 2)"""
-        nodes = self.mesh['node']
-        elems = self.mesh['element']
+        nodes = self.mesh.node
+        elems = self.mesh.element
         return np.mean(nodes[elems], axis=1)
 
     def solve(self, sigma: np.ndarray, frequency: Optional[float] = None) -> np.ndarray:
@@ -116,44 +122,38 @@ class EITForwardSolver:
 
         参数:
             sigma: (n_elems,) 电导率分布
-            frequency: 频率 (Hz)，默认使用第一个频率
+            frequency: 频率 (Hz)，pyEIT 1.2.4 忽略此参数，仅用于 API 兼容
 
         返回:
             voltage: (n_measurements,) 边界差分电压
         """
-        if frequency is None:
-            frequency = self.frequencies[0]
-
-        op = self._forward_ops[frequency]
-        # pyEIT fem_forward.solve 返回 (conductivity_map, voltage, ...)
-        _, v = op.solve(sigma)
-
+        # solve_eit 返回绝对电压
+        v = self._forward_op.solve_eit(sigma)
         # 差分电压：相对于均匀场
-        v_diff = v - self.V_uniform[frequency]
+        v_diff = v - self.V_uniform
         return v_diff
 
     def solve_current(self, sigma: np.ndarray, frequency: Optional[float] = None) -> np.ndarray:
         """
         返回绝对电压（非差分），部分方法需要
         """
-        if frequency is None:
-            frequency = self.frequencies[0]
-        op = self._forward_ops[frequency]
-        _, v = op.solve(sigma)
+        v = self._forward_op.solve_eit(sigma)
         return v
 
     def solve_multi_frequency(self, sigma: np.ndarray) -> np.ndarray:
         """
         多频率求解
 
+        注意: pyEIT 1.2.4 不区分频率，此方法返回多个相同结果的副本
+        仅用于保持 API 兼容性。如果需要真正的多频仿真，
+        需要扩展模型以包含频率相关的电导率特性。
+
         返回:
             voltages: (n_freq, n_measurements) 多频边界电压
         """
-        V_list = []
-        for f in self.frequencies:
-            v = self.solve(sigma, frequency=f)
-            V_list.append(v)
-        return np.stack(V_list, axis=0)
+        v = self.solve(sigma)
+        # 复制 n_freq 份（当前简化处理，实际多频需要更复杂的模型）
+        return np.tile(v, (len(self.frequencies), 1))
 
     def add_noise(self, voltage: np.ndarray, noise_db: float = -30) -> np.ndarray:
         """
@@ -178,11 +178,11 @@ class EITForwardSolver:
         """
         sigma_noisy = sigma.copy()
         # 在电极附近单元加随机扰动
-        el_pos = np.array(self.mesh['el_pos'])  # 电极索引
+        el_pos = np.array(self.mesh.el_pos)  # 电极索引
         centers = self.element_centers
 
         for i, el_idx in enumerate(el_pos[:self.n_el]):
-            node_pos = self.mesh['node'][el_idx]
+            node_pos = self.mesh.node[el_idx]
             # 找该电极附近的单元
             dists = np.linalg.norm(centers - node_pos, axis=1)
             nearby = dists < 0.02
@@ -212,9 +212,9 @@ class EITForwardSolver:
             sigma=sigma,
             frequency=np.array(self.frequencies),
             noise_db=noise_db,
-            mesh_nodes=self.mesh['node'],
-            mesh_elements=self.mesh['element'],
-            electrode_positions=self.mesh['node'][self.mesh['el_pos'][:self.n_el]]
+            mesh_nodes=self.mesh.node,
+            mesh_elements=self.mesh.element,
+            electrode_positions=self.mesh.node[self.mesh.el_pos[:self.n_el]]
         )
 
     def generate_dataset(self, sigma_list: List[np.ndarray],
@@ -244,19 +244,13 @@ class EITForwardSolver:
         获取灵敏度矩阵（雅可比矩阵）J = dV/dσ
         shape: (n_measurements, n_elems)
         """
-        if frequency is None:
-            frequency = self.frequencies[0]
-        op = self._forward_ops[frequency]
-        # pyEIT 提供 jacobian 计算
-        from pyeit.eit.fem import jacobian
-        J = jacobian(self.mesh, self.protocol, frequency)
+        # pyEIT 1.2.4: compute_jac 返回 (Jacobian, v0)
+        J, _ = self._forward_op.compute_jac(self.sigma_uniform)
         return J
 
     def get_reference_voltage(self, frequency: Optional[float] = None) -> np.ndarray:
         """获取均匀场参考电压"""
-        if frequency is None:
-            frequency = self.frequencies[0]
-        return self.V_uniform[frequency]
+        return self.V_uniform
 
 
 if __name__ == "__main__":
@@ -274,5 +268,5 @@ if __name__ == "__main__":
 
     V = solver.solve_multi_frequency(sigma)
     print(f"电压 shape: {V.shape}")
-    print(f"频率 {solver.frequencies[0]} Hz 电压范围: [{V[0].min():.4f}, {V[0].max():.4f}]")
+    print(f"电压范围: [{V[0].min():.4f}, {V[0].max():.4f}]")
     print("[测试通过] EITForwardSolver 工作正常")

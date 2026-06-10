@@ -288,8 +288,8 @@ if __name__ == "__main__":
     from pyeit.mesh import create
 
     mesh = create(n_el=16, fd=0.1, h0=0.005)
-    nodes = mesh['node']
-    elems = mesh['element']
+    nodes = mesh.node
+    elems = mesh.element
 
     gen = RootSystemGenerator(nodes, elems)
     sigma = gen.generate(seed=42)

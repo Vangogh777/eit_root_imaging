@@ -56,8 +56,8 @@ def generate_dataset(config_path: str = "config/mesh_config.yaml",
     # 2. 初始化根生成器
     print("[2/5] 初始化 RootSystemGenerator ...")
     gen = RootSystemGenerator(
-        solver.mesh['node'],
-        solver.mesh['element'],
+        solver.mesh.node,
+        solver.mesh.element,
         domain_radius=solver.cfg['mesh']['radius'],
         conductivity_root=solver.gt_cfg['conductivity_root'],
         conductivity_soil=solver.gt_cfg['conductivity_soil']
@@ -126,11 +126,11 @@ def generate_dataset(config_path: str = "config/mesh_config.yaml",
 
         # 元数据
         grp_meta = f.create_group('metadata')
-        grp_meta.create_dataset('mesh_nodes', data=solver.mesh['node'])
-        grp_meta.create_dataset('mesh_elements', data=solver.mesh['element'])
+        grp_meta.create_dataset('mesh_nodes', data=solver.mesh.node)
+        grp_meta.create_dataset('mesh_elements', data=solver.mesh.element)
         grp_meta.create_dataset('frequencies', data=np.array(solver.frequencies))
         grp_meta.create_dataset('electrode_positions',
-                                 data=solver.mesh['node'][solver.mesh['el_pos'][:solver.n_el]])
+                                 data=solver.mesh.node[solver.mesh.el_pos[:solver.n_el]])
         grp_meta.create_dataset('config_yaml',
                                  data=yaml.dump(solver.cfg).encode('utf-8'))
 
