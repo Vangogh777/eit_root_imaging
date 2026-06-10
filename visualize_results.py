@@ -36,11 +36,19 @@ def main():
 
     checkpoint = torch.load(args.model, map_location='cpu')
     config = checkpoint['config']
-    print(f"  配置: n_elems={config['n_elems']}, n_freq={config['n_freq']}, n_meas={config['n_meas']}")
+
+    # 从模型权重推断 hidden_dim
+    state_dict = checkpoint['model_state_dict']
+    if 'encoder.0.weight' in state_dict:
+        hidden_dim = state_dict['encoder.0.weight'].shape[0]
+    else:
+        hidden_dim = config.get('hidden_dim', 256)
+
+    print(f"  配置: n_elems={config['n_elems']}, n_freq={config['n_freq']}, n_meas={config['n_meas']}, hidden_dim={hidden_dim}")
 
     model = SimpleSFSBLC(
         input_dim=config['n_meas'],
-        hidden_dim=256,
+        hidden_dim=hidden_dim,
         n_frequencies=config['n_freq'],
         n_elems=config['n_elems'],
     )
