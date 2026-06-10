@@ -52,13 +52,16 @@ def run_data_generation(config_path: str, n_train: int = 10000,
     proj_root = os.path.dirname(os.path.abspath(__file__))
     script = os.path.join(proj_root, 'data', 'generate_dataset.py')
 
+    # 数据生成使用 mesh_config.yaml
+    mesh_config = os.path.join(proj_root, 'config', 'mesh_config.yaml')
+
     print("=" * 60)
     print("📦 生成训练数据集（仅首次需要，后续可复用）")
     print("=" * 60)
 
     cmd = [
         sys.executable, script,
-        "--config", config_path,
+        "--config", mesh_config,
         "--n_train", str(n_train),
         "--n_val", str(n_val),
         "--n_test", str(n_test),
@@ -76,11 +79,14 @@ def run_jacobian_precomputation(config_path: str):
     proj_root = os.path.dirname(os.path.abspath(__file__))
     script = os.path.join(proj_root, 'data', 'precompute_jacobian.py')
 
+    # 雅可比计算使用 mesh_config.yaml
+    mesh_config = os.path.join(proj_root, 'config', 'mesh_config.yaml')
+
     print("=" * 60)
     print("⚡ 预计算雅可比矩阵（加速训练）")
     print("=" * 60)
 
-    cmd = [sys.executable, script, "--config", config_path]
+    cmd = [sys.executable, script, "--config", mesh_config]
     result = subprocess.run(cmd, cwd=proj_root)
     if result.returncode != 0:
         print("⚠️  雅可比矩阵预计算失败（训练仍可用线性近似）")
