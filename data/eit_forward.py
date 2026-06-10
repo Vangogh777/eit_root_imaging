@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 # pyEIT 核心模块 (1.2.4 API)
 from pyeit.mesh import create, PyEITMesh
+from pyeit.mesh.shape import circle as circle_fd  # 距离函数
 from pyeit.eit.fem import EITForward
 from pyeit.eit.protocol import create as create_protocol, PyEITProtocol
 
@@ -94,11 +95,18 @@ class EITForwardSolver:
 
     def _create_mesh(self, mesh_cfg: dict, elec_cfg: dict) -> PyEITMesh:
         """创建 2D 圆形网格（桶截面）"""
+        radius = mesh_cfg.get('radius', 0.1)
+        h0 = mesh_cfg.get('mesh_resolution', 0.005)
+
         if mesh_cfg['type'] == 'circle':
+            # pyEIT 1.2.4: fd 必须是距离函数，不能是 float
+            # 使用 functools.partial 创建带半径参数的圆距离函数
+            from functools import partial
+            fd = partial(circle_fd, r=radius)
             mesh = create(
                 n_el=elec_cfg['count'],
-                fd=mesh_cfg.get('radius', 0.1),
-                h0=mesh_cfg.get('mesh_resolution', 0.005)
+                fd=fd,
+                h0=h0
             )
         elif mesh_cfg['type'] == 'rectangle':
             from pyeit.mesh import rectangle
