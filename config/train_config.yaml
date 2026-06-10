@@ -1,0 +1,48 @@
+# ══════════════════════════════════════════
+# 训练配置
+# ══════════════════════════════════════════
+
+model:
+  name: "sf_sblc_v1"
+  input_dim: 256             # 单频测量电压维度（取决于电极数×模式）
+  n_frequencies: 6           # 频率数（与 mesh_config 一致）
+  hidden_dim: 512
+  n_res_blocks: 8            # 残差块数
+  dropout: 0.1
+  use_attention: true
+
+training:
+  batch_size: 32
+  epochs: 200
+  learning_rate: 1e-3
+  lr_scheduler: "cosine"     # cosine / step / plateau
+  weight_decay: 1e-5
+  grad_clip: 1.0
+  warmup_epochs: 10
+
+  # 损失函数权重
+  loss_weights:
+    measurement_consistency: 1.0   # λ_m
+    tv_regularization: 0.01        # λ_tv
+    frequency_cross: 0.1           # λ_freq
+    smoothness: 0.05               # λ_smooth
+    blc_correction: 0.1            # λ_blc
+
+  # 边界电压采样策略
+  voltage_sampling:
+    strategy: "random_mask"   # random_mask / uniform / full
+    mask_ratio: 0.3           # 训练时随机掩码 30% 测量通道
+
+data:
+  dataset_path: "./data/generated/eit_dataset.h5"  # generate_dataset.py 输出
+  val_dataset_path: "./data/generated/eit_dataset.h5"   # 共用同一文件，split 区分
+  test_dataset_path: "./data/generated/eit_dataset.h5"  # 共用同一文件，split 区分
+  jacobian_path: "./data/generated/jacobian.npy"        # precompute_jacobian.py 输出
+  num_workers: 4
+  prefetch_factor: 2
+
+logging:
+  log_interval: 10           # steps
+  save_interval: 10          # epochs
+  vis_interval: 20           # epochs, 保存重建可视化
+  use_tensorboard: true

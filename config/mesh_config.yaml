@@ -1,0 +1,37 @@
+# ═══════════════════════════════════════════════════════════
+# 硬件设定：圆柱形桶（直径 20 cm），单环 16 电极，2D 截面采集
+# ═══════════════════════════════════════════════════════════
+
+mesh:
+  # 2D 圆形域 = 桶的横截面
+  type: "circle"
+  radius: 0.10               # 桶半径 10 cm（直径 20 cm，典型盆栽桶）
+  mesh_resolution: 0.005     # 最大单元边长 5 mm → 约 1500 单元
+  # 若需矩形根箱，切换为：
+  # type: "rectangle"
+  # width: 0.2
+  # height: 0.3
+
+electrodes:
+  count: 16                  # 单环 16 电极（标准 EIT 配置）
+  type: "circle"             # 沿桶壁等间距环形排列
+  radius: 0.098              # 电极贴附半径（略小于桶内径，紧贴桶壁）
+
+stimulation:
+  pattern: "adjacent"        # 相邻激励模式
+  amplitude: 1e-3            # 激励电流 (A) = 1mA
+  frequencies: [1000, 5000, 10000, 50000, 100000, 500000]  # 多频率 (Hz)
+  # 简化调试可用单频：frequencies: [10000]
+
+ground_truth:
+  conductivity_soil: 0.01    # 土壤电导率 (S/m)
+  conductivity_root: 0.05    # 根组织电导率 (S/m)
+  conductivity_air: 1e-8     # 孔隙/空气电导率
+  contrast_ratio: 5.0        # 根/土对比度
+
+data:
+  train_samples: 10000       # 训练集样本数
+  val_samples: 500           # 验证集样本数
+  test_samples: 200          # 测试集样本数
+  noise_level_db: [-40, -20] # 信噪比范围 (dB)
+  random_seed: 42
