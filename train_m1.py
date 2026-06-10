@@ -22,7 +22,13 @@ from models.universal_eit import UniversalPhantomGenerator
 
 def main():
     parser = argparse.ArgumentParser(description="M1 Mac 训练脚本")
-    parser.add_argument("--quick", action="store_true", help="快速测试模式")
+    parser.add_argument("--quick", action="store_true", help="快速测试模式 (100样本, 10轮)")
+    parser.add_argument("--n_train", type=int, default=500, help="训练样本数 (默认500)")
+    parser.add_argument("--n_val", type=int, default=100, help="验证样本数 (默认100)")
+    parser.add_argument("--epochs", type=int, default=30, help="训练轮数 (默认30)")
+    parser.add_argument("--batch_size", type=int, default=16, help="批大小 (默认16)")
+    parser.add_argument("--lr", type=float, default=1e-3, help="学习率 (默认0.001)")
+    parser.add_argument("--hidden_dim", type=int, default=256, help="隐藏层维度 (默认256)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -41,14 +47,21 @@ def main():
         N_VAL = 20
         N_EPOCHS = 10
     else:
-        N_TRAIN = 500
-        N_VAL = 100
-        N_EPOCHS = 30
+        N_TRAIN = args.n_train
+        N_VAL = args.n_val
+        N_EPOCHS = args.epochs
 
-    BATCH_SIZE = 16
-    LR = 1e-3
+    BATCH_SIZE = args.batch_size
+    LR = args.lr
+    HIDDEN_DIM = args.hidden_dim
 
-    print(f"\n配置: 训练={N_TRAIN}, 验证={N_VAL}, 轮数={N_EPOCHS}")
+    print(f"\n配置:")
+    print(f"  训练样本: {N_TRAIN}")
+    print(f"  验证样本: {N_VAL}")
+    print(f"  训练轮数: {N_EPOCHS}")
+    print(f"  批大小: {BATCH_SIZE}")
+    print(f"  学习率: {LR}")
+    print(f"  隐藏层维度: {HIDDEN_DIM}")
 
     # ============ 1. 初始化求解器 ============
     print("\n[1/5] 初始化 EIT 求解器...")
@@ -104,7 +117,7 @@ def main():
     print("\n[3/5] 构建模型...")
     model = SimpleSFSBLC(
         input_dim=n_meas,
-        hidden_dim=256,
+        hidden_dim=HIDDEN_DIM,
         n_frequencies=n_freq,
         n_elems=n_elems,
     ).to(device)
