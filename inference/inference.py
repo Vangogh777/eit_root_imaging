@@ -28,7 +28,7 @@ class EITInference:
 
     def __init__(self, checkpoint_path: str, config_path: str = "config/train_config.yaml",
                  device: Optional[str] = None):
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             self.cfg = yaml.safe_load(f)
 
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')

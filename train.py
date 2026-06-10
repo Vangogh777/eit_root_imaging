@@ -26,7 +26,7 @@ from training.unsupervised_loop import UnsupervisedTrainer
 def check_data_files(config_path: str) -> dict:
     """检查数据文件是否存在，返回状态字典"""
     import yaml
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
 
     data_cfg = cfg['data']

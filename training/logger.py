@@ -35,7 +35,7 @@ class TrainLogger:
 
         # CSV 文件
         self.csv_path = os.path.join(self.experiment_dir, "metrics.csv")
-        self.csv_file = open(self.csv_path, 'w')
+        self.csv_file = open(self.csv_path, 'w', encoding='utf-8')
         self.csv_writer = None
         self.csv_initialized = False
 
@@ -139,7 +139,7 @@ class TrainLogger:
         """保存训练配置"""
         config_path = os.path.join(self.experiment_dir, "config.yaml")
         import yaml
-        with open(config_path, 'w') as f:
+        with open(config_path, 'w', encoding='utf-8') as f:
             yaml.dump(config, f)
         print(f"  配置已保存: {config_path}")
 

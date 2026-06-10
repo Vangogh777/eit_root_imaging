@@ -26,7 +26,7 @@ def evaluate(checkpoint_path: str, config_path: str = "config/train_config.yaml"
              output_dir: str = "results", visualize: bool = True):
     """在测试集上评估模型"""
 
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -103,7 +103,7 @@ def evaluate(checkpoint_path: str, config_path: str = "config/train_config.yaml"
 
     # 保存指标
     import json
-    with open(os.path.join(output_dir, "metrics.json"), 'w') as f:
+    with open(os.path.join(output_dir, "metrics.json"), 'w', encoding='utf-8') as f:
         json.dump(metrics, f, indent=2)
 
     # 可视化

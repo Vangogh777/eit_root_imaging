@@ -57,7 +57,7 @@ class UnsupervisedTrainer:
     """
 
     def __init__(self, config_path: str = "config/train_config.yaml"):
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             self.cfg = yaml.safe_load(f)
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

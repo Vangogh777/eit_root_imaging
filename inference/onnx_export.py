@@ -22,7 +22,7 @@ def export_to_onnx(checkpoint_path: str, config_path: str = "config/train_config
                    dynamic_batch: bool = True, verbose: bool = True):
     """导出 ONNX 模型"""
 
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
 
     device = torch.device('cpu')
