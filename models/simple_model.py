@@ -20,7 +20,7 @@ class SimpleSFSBLC(nn.Module):
 
     def __init__(self, input_dim: int = 208, hidden_dim: int = 512,
                  n_frequencies: int = 6, n_elems: int = 8000,
-                 n_res_blocks: int = 6):
+                 n_res_blocks: int = 8):
         super().__init__()
 
         self.n_freq = n_frequencies

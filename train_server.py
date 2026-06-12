@@ -100,7 +100,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=200, help="训练轮数")
     parser.add_argument("--batch_size", type=int, default=64, help="批大小")
     parser.add_argument("--lr", type=float, default=1e-3, help="学习率")
-    parser.add_argument("--hidden_dim", type=int, default=768, help="隐藏层维度")
+    parser.add_argument("--hidden_dim", type=int, default=1024, help="隐藏层维度")
     parser.add_argument("--model", type=str, default="simple", choices=["simple", "physics"], help="模型类型")
     parser.add_argument("--output", type=str, default="checkpoints/server_model.pt", help="输出路径")
     parser.add_argument("--wandb", action="store_true", help="启用 wandb 日志")
@@ -231,8 +231,8 @@ def main():
     print(f"  参数量: {total_params:,}")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=50, T_mult=2, eta_min=1e-6
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=1e-6
     )
 
     # ============ 4. 训练 ============
