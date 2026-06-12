@@ -20,8 +20,8 @@ electrodes:
 stimulation:
   pattern: "adjacent"        # 相邻激励模式
   amplitude: 1e-3            # 激励电流 (A) = 1mA
-  frequencies: [1000, 5000, 10000, 50000, 100000, 500000]  # 多频率 (Hz)
-  # 简化调试可用单频：frequencies: [10000]
+  frequencies: [10000]       # 单频率 10kHz (原多频率已注释)
+  # 多频率模式: frequencies: [1000, 5000, 10000, 50000, 100000, 500000]
 
 ground_truth:
   conductivity_soil: 0.01    # 土壤电导率 (S/m)
