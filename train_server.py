@@ -293,14 +293,26 @@ def main():
         epoch_loss /= n_batches
         scheduler.step()
 
-        # 验证
+        # 验证 (分批处理避免显存溢出)
         model.eval()
         with torch.no_grad():
-            val_out = model(val_V)
+            val_loss_sum = 0.0
+            val_re_sum = 0.0
+            n_val_batches = (args.n_val + args.batch_size - 1) // args.batch_size
 
-            val_loss = torch.nn.functional.mse_loss(val_out['sigma'], val_S).item()
-            re = torch.norm(val_out['sigma'] - val_S, dim=-1) / (torch.norm(val_S, dim=-1) + 1e-8)
-            val_re = re.mean().item()
+            for b in range(n_val_batches):
+                idx_start = b * args.batch_size
+                idx_end = min((b + 1) * args.batch_size, args.n_val)
+                V_batch = val_V[idx_start:idx_end]
+                S_batch = val_S[idx_start:idx_end]
+
+                val_out = model(V_batch)
+                val_loss_sum += torch.nn.functional.mse_loss(val_out['sigma'], S_batch).item()
+                re = torch.norm(val_out['sigma'] - S_batch, dim=-1) / (torch.norm(S_batch, dim=-1) + 1e-8)
+                val_re_sum += re.sum().item()
+
+            val_loss = val_loss_sum / n_val_batches
+            val_re = val_re_sum / args.n_val
 
         history.append({'epoch': epoch, 'loss': epoch_loss, 'val_loss': val_loss, 'val_re': val_re})
 
