@@ -213,7 +213,10 @@ def main():
     print("\n[3/5] 构建模型...")
 
     # 获取网格信息（GNN模型需要）
+    # pyEIT 网格节点可能是 3D 坐标，只取前两维用于 2D EIT
     centers = np.mean(solver.mesh.node[solver.mesh.element], axis=1)
+    if centers.shape[1] > 2:
+        centers = centers[:, :2]  # 只取 x, y 坐标
     elements = solver.mesh.element
 
     if args.model == "simple":
