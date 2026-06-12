@@ -7,6 +7,7 @@
     python train_server.py                    # 默认配置 (20000样本)
     python train_server.py --n_train 50000    # 自定义样本数
     python train_server.py --model physics    # 使用物理信息增强模型
+    python train_server.py --generate         # 强制重新生成数据
 """
 
 import os
@@ -22,6 +23,37 @@ from data.eit_forward import EITForwardSolver
 from models.simple_model import SimpleSFSBLC
 from models.universal_eit import PhysicsInformedEIT, UniversalPhantomGenerator
 
+def get_cache_path(n_train, n_val, n_elems):
+    """获取数据缓存路径"""
+    cache_dir = "data/generated"
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f"server_data_{n_train}_{n_val}_{n_elems}.npz")
+
+def check_cached_data(cache_path):
+    """检查缓存数据是否存在"""
+    return os.path.exists(cache_path)
+
+def load_cached_data(cache_path):
+    """加载缓存数据"""
+    data = np.load(cache_path)
+    return (
+        data['train_sigmas'],
+        data['train_voltages'],
+        data['val_sigmas'],
+        data['val_voltages'],
+    )
+
+def save_cached_data(cache_path, train_sigmas, train_voltages, val_sigmas, val_voltages):
+    """保存数据到缓存"""
+    np.savez_compressed(
+        cache_path,
+        train_sigmas=train_sigmas,
+        train_voltages=train_voltages,
+        val_sigmas=val_sigmas,
+        val_voltages=val_voltages,
+    )
+    print(f"  数据已缓存: {cache_path}")
+
 def main():
     parser = argparse.ArgumentParser(description="服务器训练脚本")
     parser.add_argument("--n_train", type=int, default=20000, help="训练样本数")
@@ -34,6 +66,7 @@ def main():
     parser.add_argument("--output", type=str, default="checkpoints/server_model.pt", help="输出路径")
     parser.add_argument("--wandb", action="store_true", help="启用 wandb 日志")
     parser.add_argument("--wandb_project", type=str, default="eit-root-imaging", help="wandb 项目名")
+    parser.add_argument("--generate", action="store_true", help="强制重新生成数据")
     args = parser.parse_args()
 
     # ============ wandb 初始化 ============
@@ -91,43 +124,59 @@ def main():
     # ============ 2. 生成数据 ============
     print("\n[2/5] 生成数据集...")
 
-    phantom_gen = UniversalPhantomGenerator(
-        solver.mesh.node,
-        solver.mesh.element,
-        domain_radius=solver.cfg['mesh']['radius'],
-        sigma_background=0.01,
-        sigma_inclusion=0.05
-    )
+    # 检查缓存
+    cache_path = get_cache_path(args.n_train, args.n_val, n_elems)
+    use_cache = not args.generate and check_cached_data(cache_path)
 
-    def generate_sample(seed):
-        sigma = phantom_gen.generate_random(seed=seed)
-        V = solver.solve_multi_frequency(sigma)
-        if np.isnan(V).any():
-            V = np.random.randn(n_freq, n_meas).astype(np.float32) * 1e-6
-        V_noisy = solver.add_noise(V, noise_db=np.random.uniform(-40, -20))
-        return sigma.astype(np.float32), V_noisy.astype(np.float32)
+    if use_cache:
+        print(f"  发现缓存数据，加载中...")
+        train_sigmas, train_voltages, val_sigmas, val_voltages = load_cached_data(cache_path)
+        print(f"  训练: {train_sigmas.shape}, 验证: {val_sigmas.shape}")
+    else:
+        if args.generate:
+            print(f"  强制重新生成数据...")
+        else:
+            print(f"  未找到缓存，生成新数据...")
 
-    # 生成训练数据
-    print(f"  生成 {args.n_train} 训练样本...")
-    train_sigmas, train_voltages = [], []
-    for i in tqdm(range(args.n_train)):
-        sigma, V = generate_sample(seed=i)
-        train_sigmas.append(sigma)
-        train_voltages.append(V)
-    train_sigmas = np.stack(train_sigmas)
-    train_voltages = np.stack(train_voltages)
+        phantom_gen = UniversalPhantomGenerator(
+            solver.mesh.node,
+            solver.mesh.element,
+            domain_radius=solver.cfg['mesh']['radius'],
+            sigma_background=0.01,
+            sigma_inclusion=0.05
+        )
 
-    # 生成验证数据
-    print(f"  生成 {args.n_val} 验证样本...")
-    val_sigmas, val_voltages = [], []
-    for i in tqdm(range(args.n_val)):
-        sigma, V = generate_sample(seed=args.n_train + i)
-        val_sigmas.append(sigma)
-        val_voltages.append(V)
-    val_sigmas = np.stack(val_sigmas)
-    val_voltages = np.stack(val_voltages)
+        def generate_sample(seed):
+            sigma = phantom_gen.generate_random(seed=seed)
+            V = solver.solve_multi_frequency(sigma)
+            if np.isnan(V).any():
+                V = np.random.randn(n_freq, n_meas).astype(np.float32) * 1e-6
+            V_noisy = solver.add_noise(V, noise_db=np.random.uniform(-40, -20))
+            return sigma.astype(np.float32), V_noisy.astype(np.float32)
 
-    print(f"  训练: {train_sigmas.shape}, 验证: {val_sigmas.shape}")
+        # 生成训练数据
+        print(f"  生成 {args.n_train} 训练样本...")
+        train_sigmas, train_voltages = [], []
+        for i in tqdm(range(args.n_train)):
+            sigma, V = generate_sample(seed=i)
+            train_sigmas.append(sigma)
+            train_voltages.append(V)
+        train_sigmas = np.stack(train_sigmas)
+        train_voltages = np.stack(train_voltages)
+
+        # 生成验证数据
+        print(f"  生成 {args.n_val} 验证样本...")
+        val_sigmas, val_voltages = [], []
+        for i in tqdm(range(args.n_val)):
+            sigma, V = generate_sample(seed=args.n_train + i)
+            val_sigmas.append(sigma)
+            val_voltages.append(V)
+        val_sigmas = np.stack(val_sigmas)
+        val_voltages = np.stack(val_voltages)
+
+        # 保存缓存
+        save_cached_data(cache_path, train_sigmas, train_voltages, val_sigmas, val_voltages)
+
     print(f"  电导率范围: [{train_sigmas.min():.4f}, {train_sigmas.max():.4f}]")
 
     # ============ 3. 构建模型 ============
