@@ -232,7 +232,7 @@ def main():
             n_res_blocks=6,
             gnn_layers=4,
             gnn_heads=4,
-            use_jacobian=True,
+            use_jacobian=False,  # 不使用Jacobian，GNN仅处理空间关系
         ).to(device)
         # 设置网格结构
         model.setup_mesh(centers, elements)

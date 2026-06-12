@@ -6,7 +6,9 @@
       "Bash(git push *)",
       "Bash(pip show *)",
       "Bash(python -c \"from pyeit.mesh import wrapper; help\\(wrapper.create\\)\")",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(wandb login *)"
     ]
   }
 }
