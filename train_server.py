@@ -353,12 +353,9 @@ def main():
     }, args.output)
     print(f"💾 模型已保存: {args.output}")
 
-    # wandb 保存模型
+    # wandb 结束
     if use_wandb:
         import wandb
-        artifact = wandb.Artifact("server-model", type="model", metadata={"val_re": best_val_re})
-        artifact.add_file(args.output)
-        wandb.log_artifact(artifact)
         wandb.finish()
         print("[wandb] 日志已同步")
 

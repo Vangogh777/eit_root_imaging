@@ -236,7 +236,7 @@ def main():
             'n_elems': n_elems,
             'n_freq': n_freq,
             'n_meas': n_meas,
-            'hidden_dim': HIDDEN_DIM,  # 保存hidden_dim
+            'hidden_dim': HIDDEN_DIM,
         },
         'history': {
             'best_val_re': val_re,
@@ -246,12 +246,9 @@ def main():
     }, save_path)
     print(f"💾 模型已保存: {save_path}")
 
-    # wandb 保存模型
+    # wandb 结束
     if use_wandb:
         import wandb
-        artifact = wandb.Artifact("m1-model", type="model", metadata={"val_re": val_re})
-        artifact.add_file(save_path)
-        wandb.log_artifact(artifact)
         wandb.finish()
         print("[wandb] 日志已同步")
 
