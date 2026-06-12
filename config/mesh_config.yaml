@@ -6,7 +6,7 @@ mesh:
   # 2D 圆形域 = 桶的横截面
   type: "circle"
   radius: 0.10               # 桶半径 10 cm（直径 20 cm，典型盆栽桶）
-  mesh_resolution: 0.003     # 最大单元边长 3 mm → 约 8000+ 单元（高分辨率）
+  mesh_resolution: 0.005     # 最大单元边长 5 mm → 约 4000 单元
   # 若需矩形根箱，切换为：
   # type: "rectangle"
   # width: 0.2

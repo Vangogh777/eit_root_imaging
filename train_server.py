@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data.eit_forward import EITForwardSolver
 from models.simple_model import SimpleSFSBLC
 from models.universal_eit import PhysicsInformedEIT, UniversalPhantomGenerator
+from models.eit_gnn_model import EITModelGNN, EITModelSimple
 
 def get_cache_path(n_train, n_val, n_elems):
     """获取数据缓存路径"""
@@ -101,7 +102,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=64, help="批大小")
     parser.add_argument("--lr", type=float, default=1e-3, help="学习率")
     parser.add_argument("--hidden_dim", type=int, default=1024, help="隐藏层维度")
-    parser.add_argument("--model", type=str, default="simple", choices=["simple", "physics"], help="模型类型")
+    parser.add_argument("--model", type=str, default="gnn", choices=["simple", "physics", "gnn"], help="模型类型")
     parser.add_argument("--output", type=str, default="checkpoints/server_model.pt", help="输出路径")
     parser.add_argument("--wandb", action="store_true", help="启用 wandb 日志")
     parser.add_argument("--wandb_project", type=str, default="eit-root-imaging", help="wandb 项目名")
@@ -211,6 +212,10 @@ def main():
     # ============ 3. 构建模型 ============
     print("\n[3/5] 构建模型...")
 
+    # 获取网格信息（GNN模型需要）
+    centers = np.mean(solver.mesh.node[solver.mesh.element], axis=1)
+    elements = solver.mesh.element
+
     if args.model == "simple":
         model = SimpleSFSBLC(
             input_dim=n_meas,
@@ -218,6 +223,20 @@ def main():
             n_frequencies=n_freq,
             n_elems=n_elems,
         ).to(device)
+    elif args.model == "gnn":
+        model = EITModelGNN(
+            input_dim=n_meas,
+            n_frequencies=n_freq,
+            n_elems=n_elems,
+            hidden_dim=args.hidden_dim,
+            n_res_blocks=6,
+            gnn_layers=4,
+            gnn_heads=4,
+            use_jacobian=True,
+        ).to(device)
+        # 设置网格结构
+        model.setup_mesh(centers, elements)
+        print(f"  GNN 网格已设置: {n_elems} 单元")
     else:  # physics
         model = PhysicsInformedEIT(
             input_dim=n_meas,
@@ -260,12 +279,8 @@ def main():
 
             optimizer.zero_grad()
 
-            if args.model == "simple":
-                out = model(V_batch)
-                loss = torch.nn.functional.mse_loss(out['sigma'], S_batch)
-            else:
-                out = model(V_batch)
-                loss = torch.nn.functional.mse_loss(out['sigma'], S_batch)
+            out = model(V_batch)
+            loss = torch.nn.functional.mse_loss(out['sigma'], S_batch)
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -278,10 +293,7 @@ def main():
         # 验证
         model.eval()
         with torch.no_grad():
-            if args.model == "simple":
-                val_out = model(val_V)
-            else:
-                val_out = model(val_V)
+            val_out = model(val_V)
 
             val_loss = torch.nn.functional.mse_loss(val_out['sigma'], val_S).item()
             re = torch.norm(val_out['sigma'] - val_S, dim=-1) / (torch.norm(val_S, dim=-1) + 1e-8)
@@ -319,10 +331,7 @@ def main():
     model.eval()
 
     with torch.no_grad():
-        if args.model == "simple":
-            out = model(val_V[:8])
-        else:
-            out = model(val_V[:8])
+        out = model(val_V[:8])
 
         for i in range(8):
             re_i = torch.norm(out['sigma'][i] - val_S[i]) / (torch.norm(val_S[i]) + 1e-8)
