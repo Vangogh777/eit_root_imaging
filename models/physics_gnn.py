@@ -139,6 +139,7 @@ class PhysicsEncoder(nn.Module):
         super().__init__()
 
         self.use_attention = use_attention
+        self.node_dim = node_dim
 
         # 输入投影
         self.input_proj = nn.Sequential(
@@ -266,7 +267,8 @@ class PhysicsGNN(nn.Module):
                  n_layers: int = 4,
                  n_heads: int = 4,
                  dropout: float = 0.1,
-                 use_jacobian: bool = True):
+                 use_jacobian: bool = True,
+                 node_dim: int = None):
         super().__init__()
 
         self.use_jacobian = use_jacobian
@@ -274,14 +276,16 @@ class PhysicsGNN(nn.Module):
 
         # Jacobian 编码器
         if use_jacobian:
-            self.jacobian_encoder = JacobianEncoder(n_meas, hidden_dim // 2, hidden_dim)
-            node_dim = 2 + hidden_dim  # (x, y) + jacobian_feat
+            self.jacobian_encoder = JacobianEncoder(n_meas, hidden_dim // 2, hidden_dim // 2)
+            # 节点维度: 2 (坐标) + hidden_dim//2 (jacobian特征)
+            actual_node_dim = node_dim if node_dim is not None else 2 + hidden_dim // 2
         else:
-            node_dim = 2  # 只有坐标
+            self.jacobian_encoder = None
+            actual_node_dim = node_dim if node_dim is not None else 2
 
         # 物理图编码器
         self.physics_encoder = PhysicsEncoder(
-            node_dim=node_dim,
+            node_dim=actual_node_dim,
             hidden_dim=hidden_dim,
             output_dim=output_dim,
             n_layers=n_layers,
@@ -312,10 +316,10 @@ class PhysicsGNN(nn.Module):
         N = centers.shape[1]
 
         # 构建节点特征
-        if self.use_jacobian and jacobian is not None:
+        if self.use_jacobian and jacobian is not None and self.jacobian_encoder is not None:
             # 编码 Jacobian
-            J_feat = self.jacobian_encoder(jacobian)  # (B, N, hidden_dim)
-            node_features = torch.cat([centers, J_feat], dim=-1)  # (B, N, 2+hidden_dim)
+            J_feat = self.jacobian_encoder(jacobian)  # (B, N, hidden_dim//2)
+            node_features = torch.cat([centers, J_feat], dim=-1)  # (B, N, 2 + hidden_dim//2)
         else:
             node_features = centers  # (B, N, 2)
 

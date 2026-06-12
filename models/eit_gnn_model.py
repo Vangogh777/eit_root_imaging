@@ -79,6 +79,10 @@ class EITModelGNN(nn.Module):
         )
 
         # ============ 2. 物理编码器 (GNN) ============
+        # 计算节点特征维度
+        jacobian_feat_dim = hidden_dim // 2 if use_jacobian else 0
+        node_dim = 2 + jacobian_feat_dim  # (x, y) + jacobian_feat
+
         self.physics_gnn = PhysicsGNN(
             n_meas=input_dim,
             hidden_dim=hidden_dim // 2,
@@ -87,6 +91,7 @@ class EITModelGNN(nn.Module):
             n_heads=gnn_heads,
             dropout=dropout,
             use_jacobian=use_jacobian,
+            node_dim=node_dim,  # 指定正确的节点维度
         )
 
         # ============ 3. 特征融合 ============
