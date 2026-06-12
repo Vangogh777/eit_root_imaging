@@ -268,7 +268,8 @@ class PhysicsGNN(nn.Module):
                  n_heads: int = 4,
                  dropout: float = 0.1,
                  use_jacobian: bool = True,
-                 node_dim: int = None):
+                 node_dim: int = None,
+                 use_attention: bool = False):  # 默认禁用注意力，节省显存
         super().__init__()
 
         self.use_jacobian = use_jacobian
@@ -291,7 +292,7 @@ class PhysicsGNN(nn.Module):
             n_layers=n_layers,
             n_heads=n_heads,
             dropout=dropout,
-            use_attention=True,
+            use_attention=use_attention,  # 使用参数控制
         )
 
     def forward(self,

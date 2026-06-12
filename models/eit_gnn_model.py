@@ -58,9 +58,10 @@ class EITModelGNN(nn.Module):
                  hidden_dim: int = 512,      # 隐藏层维度
                  n_res_blocks: int = 6,      # 残差块数
                  gnn_layers: int = 4,        # GNN层数
-                 gnn_heads: int = 4,         # GNN注意力头数
+                 gnn_heads: int = 4,         # GNN注意力头数（当use_attention=True时使用）
                  dropout: float = 0.1,
-                 use_jacobian: bool = True):
+                 use_jacobian: bool = True,
+                 use_attention: bool = False):  # 默认禁用注意力，节省显存
         super().__init__()
 
         self.n_elems = n_elems
@@ -92,6 +93,7 @@ class EITModelGNN(nn.Module):
             dropout=dropout,
             use_jacobian=use_jacobian,
             node_dim=node_dim,  # 指定正确的节点维度
+            use_attention=use_attention,  # 控制是否使用注意力机制
         )
 
         # ============ 3. 特征融合 ============
