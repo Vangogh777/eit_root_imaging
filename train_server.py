@@ -283,7 +283,11 @@ def main():
             optimizer.zero_grad()
 
             out = model(V_batch)
-            loss = torch.nn.functional.mse_loss(out['sigma'], S_batch)
+
+            # 组合损失: MSE + 相对误差
+            mse_loss = torch.nn.functional.mse_loss(out['sigma'], S_batch)
+            re_loss = torch.norm(out['sigma'] - S_batch) / (torch.norm(S_batch) + 1e-8)
+            loss = mse_loss + 0.1 * re_loss  # 加入相对误差损失
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
