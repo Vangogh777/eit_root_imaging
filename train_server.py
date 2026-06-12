@@ -8,6 +8,7 @@
     python train_server.py --n_train 50000    # 自定义样本数
     python train_server.py --model physics    # 使用物理信息增强模型
     python train_server.py --generate         # 强制重新生成数据
+    python train_server.py --workers 8        # 使用8进程并行生成数据
 """
 
 import os
@@ -16,6 +17,7 @@ import argparse
 import torch
 import numpy as np
 from tqdm import tqdm
+from multiprocessing import Pool, cpu_count
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -54,6 +56,43 @@ def save_cached_data(cache_path, train_sigmas, train_voltages, val_sigmas, val_v
     )
     print(f"  数据已缓存: {cache_path}")
 
+
+# ============ 多进程数据生成 ============
+
+# 全局变量（用于多进程共享，避免重复初始化）
+_solver = None
+_phantom_gen = None
+_n_freq = None
+_n_meas = None
+
+def init_worker(config_path):
+    """初始化worker进程"""
+    global _solver, _phantom_gen, _n_freq, _n_meas
+    _solver = EITForwardSolver(config_path)
+    _n_freq = len(_solver.frequencies)
+    _n_meas = _solver.n_measurements
+    _phantom_gen = UniversalPhantomGenerator(
+        _solver.mesh.node,
+        _solver.mesh.element,
+        domain_radius=_solver.cfg['mesh']['radius'],
+        sigma_background=0.01,
+        sigma_inclusion=0.05
+    )
+
+def generate_single_sample(seed):
+    """生成单个样本（用于多进程）"""
+    global _solver, _phantom_gen, _n_freq, _n_meas
+
+    sigma = _phantom_gen.generate_random(seed=seed)
+    V = _solver.solve_multi_frequency(sigma)
+
+    if np.isnan(V).any():
+        V = np.random.randn(_n_freq, _n_meas).astype(np.float32) * 1e-6
+
+    V_noisy = _solver.add_noise(V, noise_db=np.random.uniform(-40, -20))
+    return sigma.astype(np.float32), V_noisy.astype(np.float32)
+
+
 def main():
     parser = argparse.ArgumentParser(description="服务器训练脚本")
     parser.add_argument("--n_train", type=int, default=20000, help="训练样本数")
@@ -67,7 +106,11 @@ def main():
     parser.add_argument("--wandb", action="store_true", help="启用 wandb 日志")
     parser.add_argument("--wandb_project", type=str, default="eit-root-imaging", help="wandb 项目名")
     parser.add_argument("--generate", action="store_true", help="强制重新生成数据")
+    parser.add_argument("--workers", type=int, default=None, help="并行进程数（默认CPU核心数）")
     args = parser.parse_args()
+
+    # 设置并行进程数
+    n_workers = args.workers if args.workers else cpu_count()
 
     # ============ wandb 初始化 ============
     use_wandb = args.wandb
@@ -138,41 +181,27 @@ def main():
         else:
             print(f"  未找到缓存，生成新数据...")
 
-        phantom_gen = UniversalPhantomGenerator(
-            solver.mesh.node,
-            solver.mesh.element,
-            domain_radius=solver.cfg['mesh']['radius'],
-            sigma_background=0.01,
-            sigma_inclusion=0.05
-        )
+        print(f"  使用 {n_workers} 个进程并行生成...")
 
-        def generate_sample(seed):
-            sigma = phantom_gen.generate_random(seed=seed)
-            V = solver.solve_multi_frequency(sigma)
-            if np.isnan(V).any():
-                V = np.random.randn(n_freq, n_meas).astype(np.float32) * 1e-6
-            V_noisy = solver.add_noise(V, noise_db=np.random.uniform(-40, -20))
-            return sigma.astype(np.float32), V_noisy.astype(np.float32)
+        # 使用多进程并行生成
+        config_path = "config/mesh_config.yaml"
 
-        # 生成训练数据
-        print(f"  生成 {args.n_train} 训练样本...")
-        train_sigmas, train_voltages = [], []
-        for i in tqdm(range(args.n_train)):
-            sigma, V = generate_sample(seed=i)
-            train_sigmas.append(sigma)
-            train_voltages.append(V)
-        train_sigmas = np.stack(train_sigmas)
-        train_voltages = np.stack(train_voltages)
+        with Pool(n_workers, initializer=init_worker, initargs=(config_path,)) as pool:
+            # 生成训练数据
+            print(f"  生成 {args.n_train} 训练样本...")
+            train_seeds = list(range(args.n_train))
+            results = list(tqdm(pool.imap(generate_single_sample, train_seeds),
+                                total=args.n_train, desc="  训练数据"))
+            train_sigmas = np.stack([r[0] for r in results])
+            train_voltages = np.stack([r[1] for r in results])
 
-        # 生成验证数据
-        print(f"  生成 {args.n_val} 验证样本...")
-        val_sigmas, val_voltages = [], []
-        for i in tqdm(range(args.n_val)):
-            sigma, V = generate_sample(seed=args.n_train + i)
-            val_sigmas.append(sigma)
-            val_voltages.append(V)
-        val_sigmas = np.stack(val_sigmas)
-        val_voltages = np.stack(val_voltages)
+            # 生成验证数据
+            print(f"  生成 {args.n_val} 验证样本...")
+            val_seeds = list(range(args.n_train, args.n_train + args.n_val))
+            results = list(tqdm(pool.imap(generate_single_sample, val_seeds),
+                                total=args.n_val, desc="  验证数据"))
+            val_sigmas = np.stack([r[0] for r in results])
+            val_voltages = np.stack([r[1] for r in results])
 
         # 保存缓存
         save_cached_data(cache_path, train_sigmas, train_voltages, val_sigmas, val_voltages)
