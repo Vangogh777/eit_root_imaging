@@ -4,8 +4,8 @@
 完整训练配置，用于GPU服务器
 
 用法:
-    python train_server.py                    # 默认配置
-    python train_server.py --n_train 20000    # 自定义样本数
+    python train_server.py                    # 默认配置 (20000样本)
+    python train_server.py --n_train 50000    # 自定义样本数
     python train_server.py --model physics    # 使用物理信息增强模型
 """
 
@@ -24,17 +24,42 @@ from models.universal_eit import PhysicsInformedEIT, UniversalPhantomGenerator
 
 def main():
     parser = argparse.ArgumentParser(description="服务器训练脚本")
-    parser.add_argument("--n_train", type=int, default=5000, help="训练样本数")
-    parser.add_argument("--n_val", type=int, default=500, help="验证样本数")
-    parser.add_argument("--epochs", type=int, default=100, help="训练轮数")
-    parser.add_argument("--batch_size", type=int, default=32, help="批大小")
+    parser.add_argument("--n_train", type=int, default=20000, help="训练样本数")
+    parser.add_argument("--n_val", type=int, default=1000, help="验证样本数")
+    parser.add_argument("--epochs", type=int, default=200, help="训练轮数")
+    parser.add_argument("--batch_size", type=int, default=64, help="批大小")
     parser.add_argument("--lr", type=float, default=1e-3, help="学习率")
+    parser.add_argument("--hidden_dim", type=int, default=768, help="隐藏层维度")
     parser.add_argument("--model", type=str, default="simple", choices=["simple", "physics"], help="模型类型")
     parser.add_argument("--output", type=str, default="checkpoints/server_model.pt", help="输出路径")
+    parser.add_argument("--wandb", action="store_true", help="启用 wandb 日志")
+    parser.add_argument("--wandb_project", type=str, default="eit-root-imaging", help="wandb 项目名")
     args = parser.parse_args()
 
+    # ============ wandb 初始化 ============
+    use_wandb = args.wandb
+    if use_wandb:
+        try:
+            import wandb
+            wandb.init(
+                project=args.wandb_project,
+                config={
+                    "n_train": args.n_train,
+                    "n_val": args.n_val,
+                    "epochs": args.epochs,
+                    "batch_size": args.batch_size,
+                    "lr": args.lr,
+                    "hidden_dim": args.hidden_dim,
+                    "model": args.model,
+                }
+            )
+            print(f"[wandb] 已连接: {wandb.run.url}")
+        except ImportError:
+            print("[WARN] wandb 未安装，跳过。运行: pip install wandb")
+            use_wandb = False
+
     print("=" * 60)
-    print("🖥️  服务器训练")
+    print("🖥️  服务器训练 (高分辨率版)")
     print("=" * 60)
 
     # 检查设备
@@ -51,6 +76,7 @@ def main():
     print(f"  训练轮数: {args.epochs}")
     print(f"  批大小: {args.batch_size}")
     print(f"  学习率: {args.lr}")
+    print(f"  隐藏层维度: {args.hidden_dim}")
     print(f"  模型: {args.model}")
 
     # ============ 1. 初始化求解器 ============
@@ -60,6 +86,7 @@ def main():
     n_freq = len(solver.frequencies)
     n_meas = solver.n_measurements
     print(f"  网格: {n_elems} 单元, {n_freq} 频率, {n_meas} 测量通道")
+    print(f"  ⚠️  目标单元数: ~8000 (当前: {n_elems})")
 
     # ============ 2. 生成数据 ============
     print("\n[2/5] 生成数据集...")
@@ -101,6 +128,7 @@ def main():
     val_voltages = np.stack(val_voltages)
 
     print(f"  训练: {train_sigmas.shape}, 验证: {val_sigmas.shape}")
+    print(f"  电导率范围: [{train_sigmas.min():.4f}, {train_sigmas.max():.4f}]")
 
     # ============ 3. 构建模型 ============
     print("\n[3/5] 构建模型...")
@@ -108,14 +136,14 @@ def main():
     if args.model == "simple":
         model = SimpleSFSBLC(
             input_dim=n_meas,
-            hidden_dim=512,
+            hidden_dim=args.hidden_dim,
             n_frequencies=n_freq,
             n_elems=n_elems,
         ).to(device)
     else:  # physics
         model = PhysicsInformedEIT(
             input_dim=n_meas,
-            hidden_dim=512,
+            hidden_dim=args.hidden_dim,
             n_frequencies=n_freq,
             n_elems=n_elems,
             use_jacobian_prior=True,
@@ -124,8 +152,10 @@ def main():
     total_params = sum(p.numel() for p in model.parameters())
     print(f"  参数量: {total_params:,}")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=50, T_mult=2, eta_min=1e-6
+    )
 
     # ============ 4. 训练 ============
     print("\n[4/5] 开始训练...")
@@ -186,6 +216,17 @@ def main():
         print(f"  Epoch {epoch:3d}/{args.epochs} | Loss: {epoch_loss:.6f} | "
               f"Val: {val_loss:.6f} | RE: {val_re:.4f} | LR: {lr:.6f}")
 
+        # wandb 日志
+        if use_wandb:
+            import wandb
+            wandb.log({
+                "epoch": epoch,
+                "train/loss": epoch_loss,
+                "val/loss": val_loss,
+                "val/RE": val_re,
+                "train/lr": lr,
+            })
+
         # 保存最佳模型
         if val_re < best_val_re:
             best_val_re = val_re
@@ -215,6 +256,7 @@ def main():
     print("=" * 60)
     print(f"📊 最佳验证相对误差: {best_val_re:.4f} (Epoch {best_epoch})")
     print(f"📊 模型参数量: {total_params:,}")
+    print(f"📊 网格单元数: {n_elems}")
 
     # 保存模型
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
@@ -225,13 +267,22 @@ def main():
             'n_elems': n_elems,
             'n_freq': n_freq,
             'n_meas': n_meas,
-            'hidden_dim': 512,
+            'hidden_dim': args.hidden_dim,
         },
         'history': history,
         'best_val_re': best_val_re,
         'best_epoch': best_epoch,
     }, args.output)
     print(f"💾 模型已保存: {args.output}")
+
+    # wandb 保存模型
+    if use_wandb:
+        import wandb
+        artifact = wandb.Artifact("server-model", type="model", metadata={"val_re": best_val_re})
+        artifact.add_file(args.output)
+        wandb.log_artifact(artifact)
+        wandb.finish()
+        print("[wandb] 日志已同步")
 
 if __name__ == "__main__":
     main()

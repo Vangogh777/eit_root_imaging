@@ -287,6 +287,15 @@ class UniversalPhantomGenerator:
     通用仿真体模生成器
     ==================
     生成各种形状的电导率分布，用于训练通用重建模型。
+
+    支持形状：
+    - 圆形 (circle)
+    - 正方形 (square)
+    - 三角形 (triangle)
+    - 椭圆 (ellipse)
+    - 环形 (ring)
+    - 矩形 (rectangle)
+    - 多边形 (polygon)
     """
 
     def __init__(self, mesh_nodes: np.ndarray, mesh_elements: np.ndarray,
@@ -301,58 +310,236 @@ class UniversalPhantomGenerator:
         self.sigma_bg = sigma_background
         self.sigma_inc = sigma_inclusion
 
-    def generate_random_circular_inclusions(self, n_inclusions: int = None,
-                                             seed: int = None) -> np.ndarray:
-        """随机圆形包含物"""
+        # 电导率范围（更丰富的分布）
+        self.sigma_min = 0.005   # 最小电导率
+        self.sigma_max = 0.10    # 最大电导率
+
+    def _random_sigma(self) -> float:
+        """生成随机电导率值"""
+        return np.random.uniform(self.sigma_min, self.sigma_max)
+
+    def generate_single_circle(self, seed: int = None) -> np.ndarray:
+        """单个圆形包含物"""
+        if seed is not None:
+            np.random.seed(seed)
+
+        sigma = np.full(self.n_elems, self.sigma_bg)
+
+        # 随机圆心和半径
+        cx = np.random.uniform(-self.radius * 0.5, self.radius * 0.5)
+        cy = np.random.uniform(-self.radius * 0.5, self.radius * 0.5)
+        r = np.random.uniform(0.02, 0.05)
+
+        dist = np.sqrt((self.centers[:, 0] - cx)**2 + (self.centers[:, 1] - cy)**2)
+        sigma[dist < r] = self._random_sigma()
+
+        return sigma
+
+    def generate_single_square(self, seed: int = None) -> np.ndarray:
+        """单个正方形包含物"""
+        if seed is not None:
+            np.random.seed(seed)
+
+        sigma = np.full(self.n_elems, self.sigma_bg)
+
+        # 随机中心、边长和旋转角
+        cx = np.random.uniform(-self.radius * 0.4, self.radius * 0.4)
+        cy = np.random.uniform(-self.radius * 0.4, self.radius * 0.4)
+        side = np.random.uniform(0.03, 0.06)
+        theta = np.random.uniform(0, np.pi / 4)  # 旋转角度
+
+        # 旋转坐标
+        x_rot = (self.centers[:, 0] - cx) * np.cos(theta) + \
+                (self.centers[:, 1] - cy) * np.sin(theta)
+        y_rot = -(self.centers[:, 0] - cx) * np.sin(theta) + \
+                (self.centers[:, 1] - cy) * np.cos(theta)
+
+        # 正方形条件
+        mask = (np.abs(x_rot) < side / 2) & (np.abs(y_rot) < side / 2)
+        sigma[mask] = self._random_sigma()
+
+        return sigma
+
+    def generate_single_triangle(self, seed: int = None) -> np.ndarray:
+        """单个三角形包含物"""
+        if seed is not None:
+            np.random.seed(seed)
+
+        sigma = np.full(self.n_elems, self.sigma_bg)
+
+        # 随机三角形顶点（等边三角形）
+        cx = np.random.uniform(-self.radius * 0.3, self.radius * 0.3)
+        cy = np.random.uniform(-self.radius * 0.3, self.radius * 0.3)
+        size = np.random.uniform(0.03, 0.05)
+        theta = np.random.uniform(0, 2 * np.pi)
+
+        # 等边三角形顶点
+        angles = [theta, theta + 2*np.pi/3, theta + 4*np.pi/3]
+        vertices = np.array([
+            [cx + size * np.cos(a), cy + size * np.sin(a)]
+            for a in angles
+        ])
+
+        # 判断点是否在三角形内
+        def point_in_triangle(p, v0, v1, v2):
+            def sign(p1, p2, p3):
+                return (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1])
+            d1 = sign(p, v0, v1)
+            d2 = sign(p, v1, v2)
+            d3 = sign(p, v2, v0)
+            has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+            has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+            return not (has_neg and has_pos)
+
+        mask = np.array([
+            point_in_triangle(c, vertices[0], vertices[1], vertices[2])
+            for c in self.centers
+        ])
+        sigma[mask] = self._random_sigma()
+
+        return sigma
+
+    def generate_single_rectangle(self, seed: int = None) -> np.ndarray:
+        """单个矩形包含物（非正方形）"""
+        if seed is not None:
+            np.random.seed(seed)
+
+        sigma = np.full(self.n_elems, self.sigma_bg)
+
+        cx = np.random.uniform(-self.radius * 0.3, self.radius * 0.3)
+        cy = np.random.uniform(-self.radius * 0.3, self.radius * 0.3)
+        width = np.random.uniform(0.03, 0.06)
+        height = np.random.uniform(0.015, 0.03)  # 高度较小
+        theta = np.random.uniform(0, np.pi / 2)
+
+        x_rot = (self.centers[:, 0] - cx) * np.cos(theta) + \
+                (self.centers[:, 1] - cy) * np.sin(theta)
+        y_rot = -(self.centers[:, 0] - cx) * np.sin(theta) + \
+                (self.centers[:, 1] - cy) * np.cos(theta)
+
+        mask = (np.abs(x_rot) < width / 2) & (np.abs(y_rot) < height / 2)
+        sigma[mask] = self._random_sigma()
+
+        return sigma
+
+    def generate_single_ring(self, seed: int = None) -> np.ndarray:
+        """单个环形包含物"""
+        if seed is not None:
+            np.random.seed(seed)
+
+        sigma = np.full(self.n_elems, self.sigma_bg)
+
+        cx = np.random.uniform(-self.radius * 0.2, self.radius * 0.2)
+        cy = np.random.uniform(-self.radius * 0.2, self.radius * 0.2)
+        r_inner = np.random.uniform(0.015, 0.025)
+        r_outer = np.random.uniform(0.03, 0.045)
+
+        dist = np.sqrt((self.centers[:, 0] - cx)**2 + (self.centers[:, 1] - cy)**2)
+        mask = (dist > r_inner) & (dist < r_outer)
+        sigma[mask] = self._random_sigma()
+
+        return sigma
+
+    def generate_single_ellipse(self, seed: int = None) -> np.ndarray:
+        """单个椭圆包含物"""
+        if seed is not None:
+            np.random.seed(seed)
+
+        sigma = np.full(self.n_elems, self.sigma_bg)
+
+        cx = np.random.uniform(-self.radius * 0.3, self.radius * 0.3)
+        cy = np.random.uniform(-self.radius * 0.3, self.radius * 0.3)
+        a = np.random.uniform(0.02, 0.05)  # 长轴
+        b = np.random.uniform(0.01, 0.025)  # 短轴
+        theta = np.random.uniform(0, np.pi)
+
+        x_rot = (self.centers[:, 0] - cx) * np.cos(theta) + \
+                (self.centers[:, 1] - cy) * np.sin(theta)
+        y_rot = -(self.centers[:, 0] - cx) * np.sin(theta) + \
+                (self.centers[:, 1] - cy) * np.cos(theta)
+
+        mask = (x_rot / a)**2 + (y_rot / b)**2 < 1
+        sigma[mask] = self._random_sigma()
+
+        return sigma
+
+    def generate_multi_circles(self, n_inclusions: int = None, seed: int = None) -> np.ndarray:
+        """多个圆形包含物"""
         if seed is not None:
             np.random.seed(seed)
 
         if n_inclusions is None:
-            n_inclusions = np.random.randint(1, 5)
+            n_inclusions = np.random.randint(2, 6)
 
         sigma = np.full(self.n_elems, self.sigma_bg)
 
         for _ in range(n_inclusions):
-            # 随机圆心和半径
             cx = np.random.uniform(-self.radius * 0.6, self.radius * 0.6)
             cy = np.random.uniform(-self.radius * 0.6, self.radius * 0.6)
             r = np.random.uniform(0.01, 0.03)
 
-            # 设置包含物电导率
             dist = np.sqrt((self.centers[:, 0] - cx)**2 + (self.centers[:, 1] - cy)**2)
-            mask = dist < r
-            sigma_val = np.random.uniform(self.sigma_bg * 2, self.sigma_inc)
-            sigma[mask] = sigma_val
+            sigma[dist < r] = self._random_sigma()
 
         return sigma
 
-    def generate_random_elliptical_inclusions(self, n_inclusions: int = None,
-                                               seed: int = None) -> np.ndarray:
-        """随机椭圆包含物"""
+    def generate_multi_squares(self, n_inclusions: int = None, seed: int = None) -> np.ndarray:
+        """多个正方形包含物"""
         if seed is not None:
             np.random.seed(seed)
 
         if n_inclusions is None:
-            n_inclusions = np.random.randint(1, 4)
+            n_inclusions = np.random.randint(2, 4)
 
         sigma = np.full(self.n_elems, self.sigma_bg)
 
         for _ in range(n_inclusions):
             cx = np.random.uniform(-self.radius * 0.5, self.radius * 0.5)
             cy = np.random.uniform(-self.radius * 0.5, self.radius * 0.5)
-            a = np.random.uniform(0.01, 0.04)  # 长轴
-            b = np.random.uniform(0.01, 0.03)  # 短轴
-            theta = np.random.uniform(0, np.pi)  # 旋转角
+            side = np.random.uniform(0.015, 0.035)
+            theta = np.random.uniform(0, np.pi / 4)
 
-            # 旋转坐标
             x_rot = (self.centers[:, 0] - cx) * np.cos(theta) + \
                     (self.centers[:, 1] - cy) * np.sin(theta)
             y_rot = -(self.centers[:, 0] - cx) * np.sin(theta) + \
                     (self.centers[:, 1] - cy) * np.cos(theta)
 
-            mask = (x_rot / a)**2 + (y_rot / b)**2 < 1
-            sigma_val = np.random.uniform(self.sigma_bg * 2, self.sigma_inc)
-            sigma[mask] = sigma_val
+            mask = (np.abs(x_rot) < side / 2) & (np.abs(y_rot) < side / 2)
+            sigma[mask] = self._random_sigma()
+
+        return sigma
+
+    def generate_mixed_shapes(self, seed: int = None) -> np.ndarray:
+        """混合形状：圆形 + 正方形 + 三角形"""
+        if seed is not None:
+            np.random.seed(seed)
+
+        sigma = np.full(self.n_elems, self.sigma_bg)
+
+        # 添加圆形
+        n_circles = np.random.randint(1, 3)
+        for _ in range(n_circles):
+            cx = np.random.uniform(-self.radius * 0.5, self.radius * 0.5)
+            cy = np.random.uniform(-self.radius * 0.5, self.radius * 0.5)
+            r = np.random.uniform(0.015, 0.03)
+            dist = np.sqrt((self.centers[:, 0] - cx)**2 + (self.centers[:, 1] - cy)**2)
+            sigma[dist < r] = self._random_sigma()
+
+        # 添加正方形
+        n_squares = np.random.randint(0, 2)
+        for _ in range(n_squares):
+            cx = np.random.uniform(-self.radius * 0.4, self.radius * 0.4)
+            cy = np.random.uniform(-self.radius * 0.4, self.radius * 0.4)
+            side = np.random.uniform(0.02, 0.04)
+            theta = np.random.uniform(0, np.pi / 4)
+
+            x_rot = (self.centers[:, 0] - cx) * np.cos(theta) + \
+                    (self.centers[:, 1] - cy) * np.sin(theta)
+            y_rot = -(self.centers[:, 0] - cx) * np.sin(theta) + \
+                    (self.centers[:, 1] - cy) * np.cos(theta)
+
+            mask = (np.abs(x_rot) < side / 2) & (np.abs(y_rot) < side / 2)
+            sigma[mask] = self._random_sigma()
 
         return sigma
 
@@ -365,53 +552,96 @@ class UniversalPhantomGenerator:
         angle = np.random.uniform(0, 2 * np.pi)
         direction = np.array([np.cos(angle), np.sin(angle)])
 
-        # 沿方向的梯度 (centers shape: n_elems x 2)
-        projection = self.centers[:, :2] @ direction  # 只取前两列(x, y)
-        sigma = self.sigma_bg + (self.sigma_inc - self.sigma_bg) * \
+        # 沿方向的梯度
+        projection = self.centers[:, :2] @ direction
+        sigma = self.sigma_bg + (self.sigma_max - self.sigma_bg) * \
                 (projection - projection.min()) / (projection.max() - projection.min() + 1e-8)
 
         return sigma
 
-    def generate_complex_scene(self, seed: int = None) -> np.ndarray:
-        """复杂场景：多个不同形状"""
+    def generate_concentric_rings(self, seed: int = None) -> np.ndarray:
+        """同心环"""
         if seed is not None:
             np.random.seed(seed)
 
         sigma = np.full(self.n_elems, self.sigma_bg)
 
-        # 添加圆形
-        n_circles = np.random.randint(1, 3)
-        for _ in range(n_circles):
-            cx = np.random.uniform(-self.radius * 0.5, self.radius * 0.5)
-            cy = np.random.uniform(-self.radius * 0.5, self.radius * 0.5)
-            r = np.random.uniform(0.01, 0.03)
-            dist = np.sqrt((self.centers[:, 0] - cx)**2 + (self.centers[:, 1] - cy)**2)
-            sigma[dist < r] = np.random.uniform(self.sigma_bg * 2, self.sigma_inc)
+        n_rings = np.random.randint(2, 4)
+        radii = sorted(np.random.uniform(0.01, 0.08, n_rings))
 
-        # 添加环形
-        if np.random.rand() > 0.5:
-            cx, cy = 0, 0
-            r_inner = np.random.uniform(0.02, 0.04)
-            r_outer = np.random.uniform(0.04, 0.06)
-            dist = np.sqrt(self.centers[:, 0]**2 + self.centers[:, 1]**2)
-            mask = (dist > r_inner) & (dist < r_outer)
-            sigma[mask] = np.random.uniform(self.sigma_bg * 2, self.sigma_inc)
+        dist = np.sqrt(self.centers[:, 0]**2 + self.centers[:, 1]**2)
+
+        for i, r in enumerate(radii):
+            if i == 0:
+                mask = dist < r
+            else:
+                mask = (dist >= radii[i-1]) & (dist < r)
+            sigma[mask] = self._random_sigma()
+
+        return sigma
+
+    def generate_checkerboard(self, seed: int = None) -> np.ndarray:
+        """棋盘格分布"""
+        if seed is not None:
+            np.random.seed(seed)
+
+        sigma = np.full(self.n_elems, self.sigma_bg)
+
+        n_cells = np.random.randint(3, 6)
+        cell_size = self.radius * 2 / n_cells
+
+        for i in range(n_cells):
+            for j in range(n_cells):
+                if (i + j) % 2 == 0:
+                    x_min = -self.radius + i * cell_size
+                    x_max = x_min + cell_size
+                    y_min = -self.radius + j * cell_size
+                    y_max = y_min + cell_size
+
+                    mask = (self.centers[:, 0] > x_min) & (self.centers[:, 0] < x_max) & \
+                           (self.centers[:, 1] > y_min) & (self.centers[:, 1] < y_max)
+                    sigma[mask] = self._random_sigma()
 
         return sigma
 
     def generate_random(self, seed: int = None) -> np.ndarray:
-        """随机选择一种模式"""
+        """随机选择一种模式生成"""
         if seed is not None:
             np.random.seed(seed)
 
-        method = np.random.choice([
-            self.generate_random_circular_inclusions,
-            self.generate_random_elliptical_inclusions,
+        # 所有生成方法
+        methods = [
+            self.generate_single_circle,
+            self.generate_single_square,
+            self.generate_single_triangle,
+            self.generate_single_rectangle,
+            self.generate_single_ring,
+            self.generate_single_ellipse,
+            self.generate_multi_circles,
+            self.generate_multi_squares,
+            self.generate_mixed_shapes,
             self.generate_gradient_distribution,
-            self.generate_complex_scene,
-        ])
+            self.generate_concentric_rings,
+            self.generate_checkerboard,
+        ]
 
-        return method(seed=seed)
+        # 随机选择方法
+        method = np.random.choice(methods)
+        return method(seed=seed if seed is None else seed + 1)
+
+    # 保留旧方法名以兼容
+    def generate_random_circular_inclusions(self, n_inclusions: int = None,
+                                             seed: int = None) -> np.ndarray:
+        return self.generate_multi_circles(n_inclusions, seed)
+
+    def generate_random_elliptical_inclusions(self, n_inclusions: int = None,
+                                               seed: int = None) -> np.ndarray:
+        if seed is not None:
+            np.random.seed(seed)
+        return self.generate_single_ellipse(seed=seed + 1 if seed else None)
+
+    def generate_complex_scene(self, seed: int = None) -> np.ndarray:
+        return self.generate_mixed_shapes(seed=seed)
 
 
 if __name__ == "__main__":

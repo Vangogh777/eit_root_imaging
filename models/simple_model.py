@@ -2,6 +2,8 @@
 简化版 SF-SBLC 模型 - 用于快速测试
 =====================================
 仅保留核心功能，便于调试和验证
+
+支持更大容量以处理高分辨率网格（~8000单元）
 """
 
 import torch
@@ -16,8 +18,9 @@ class SimpleSFSBLC(nn.Module):
     输出: (B, n_elems) 电导率分布
     """
 
-    def __init__(self, input_dim: int = 208, hidden_dim: int = 256,
-                 n_frequencies: int = 6, n_elems: int = 2824):
+    def __init__(self, input_dim: int = 208, hidden_dim: int = 512,
+                 n_frequencies: int = 6, n_elems: int = 8000,
+                 n_res_blocks: int = 6):
         super().__init__()
 
         self.n_freq = n_frequencies
@@ -36,18 +39,25 @@ class SimpleSFSBLC(nn.Module):
 
         # 2. 中间处理：残差块
         self.res_blocks = nn.Sequential(
-            *[ResBlock(hidden_dim) for _ in range(4)]
+            *[ResBlock(hidden_dim) for _ in range(n_res_blocks)]
         )
 
         # 3. 输出解码：映射到网格单元
+        # 增加解码器深度以处理更多单元
         self.decoder = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim * 2),
+            nn.LayerNorm(hidden_dim * 2),
             nn.GELU(),
-            nn.Linear(hidden_dim * 2, n_elems),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim * 2, hidden_dim * 4),
+            nn.LayerNorm(hidden_dim * 4),
+            nn.GELU(),
+            nn.Linear(hidden_dim * 4, n_elems),
         )
 
-        # 输出范围：电导率约 0.01-0.05，使用 sigmoid 缩放到合理范围
-        self.output_scale = nn.Parameter(torch.tensor([0.02]))  # 可学习的缩放因子
+        # 输出范围：电导率约 0.005-0.1，使用 sigmoid 缩放到合理范围
+        self.sigma_min = 0.005
+        self.sigma_max = 0.1
 
     def forward(self, voltages: torch.Tensor) -> dict:
         """
@@ -71,10 +81,8 @@ class SimpleSFSBLC(nn.Module):
         # 解码
         sigma_raw = self.decoder(h)  # (B, n_elems)
 
-        # 使用sigmoid缩放到合理范围 [0.005, 0.1]
-        # sigmoid输出[0,1]，缩放到[sigma_min, sigma_max]
-        sigma_min, sigma_max = 0.005, 0.1
-        sigma = torch.sigmoid(sigma_raw) * (sigma_max - sigma_min) + sigma_min
+        # 使用sigmoid缩放到合理范围 [sigma_min, sigma_max]
+        sigma = torch.sigmoid(sigma_raw) * (self.sigma_max - self.sigma_min) + self.sigma_min
 
         return {'sigma': sigma}
 
@@ -99,7 +107,7 @@ class ResBlock(nn.Module):
 
 if __name__ == "__main__":
     # 快速测试
-    model = SimpleSFSBLC(input_dim=208, hidden_dim=256, n_frequencies=6, n_elems=2824)
+    model = SimpleSFSBLC(input_dim=208, hidden_dim=768, n_frequencies=6, n_elems=8000, n_res_blocks=8)
     x = torch.randn(4, 6, 208)
     out = model(x)
     print(f"输入: {x.shape}")

@@ -6,7 +6,7 @@ mesh:
   # 2D 圆形域 = 桶的横截面
   type: "circle"
   radius: 0.10               # 桶半径 10 cm（直径 20 cm，典型盆栽桶）
-  mesh_resolution: 0.008     # 最大单元边长 8 mm → 约 800-1200 单元（更精细）
+  mesh_resolution: 0.003     # 最大单元边长 3 mm → 约 8000+ 单元（高分辨率）
   # 若需矩形根箱，切换为：
   # type: "rectangle"
   # width: 0.2
@@ -30,8 +30,8 @@ ground_truth:
   contrast_ratio: 5.0        # 根/土对比度
 
 data:
-  train_samples: 1000          # 训练集样本数 (原10000，降低10倍)
-  val_samples: 100             # 验证集样本数 (原500)
-  test_samples: 50             # 测试集样本数 (原200)
+  train_samples: 20000         # 训练集样本数
+  val_samples: 1000            # 验证集样本数
+  test_samples: 500            # 测试集样本数
   noise_level_db: [-40, -20]   # 信噪比范围 (dB)
   random_seed: 42
