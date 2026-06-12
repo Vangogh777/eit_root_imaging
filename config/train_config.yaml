@@ -46,3 +46,8 @@ logging:
   save_interval: 10          # epochs
   vis_interval: 20           # epochs, 保存重建可视化
   use_tensorboard: true
+
+  # Weights & Biases 配置
+  use_wandb: true            # 启用 wandb 日志
+  wandb_project: "eit-root-imaging"   # wandb 项目名
+  wandb_entity: null         # wandb 用户/团队名 (null = 默认用户)

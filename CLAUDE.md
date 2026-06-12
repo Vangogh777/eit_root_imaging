@@ -16,9 +16,15 @@ cd eit_root_imaging
 pip install -r requirements.txt
 ```
 
+### Testing
+```bash
+# Quick pipeline validation (data generation → model → forward pass)
+python test_minimal.py
+```
+
 ### Training
 ```bash
-# First run (auto-generates data, then trains)
+# Standard training (auto-generates data on first run)
 python train.py
 
 # Subsequent runs (reuses existing data)
@@ -29,11 +35,25 @@ python train.py --generate
 
 # Resume from checkpoint
 python train.py --resume checkpoints/eit_20260610/checkpoint_epoch_50.pt
+
+# M1 Mac optimized training (uses MPS acceleration)
+python train_m1.py
+python train_m1.py --quick              # Quick test: 100 samples, 10 epochs
+
+# GPU server training
+python train_server.py
+python train_server.py --n_train 20000 --model physics  # Physics-informed model
 ```
 
 ### Evaluation
 ```bash
 python evaluation/evaluate.py --checkpoint checkpoints/...pt --split test
+```
+
+### Visualization
+```bash
+python visualize_results.py                    # Use default model
+python visualize_results.py --model xxx.pt    # Specify model checkpoint
 ```
 
 ### Inference
@@ -61,6 +81,7 @@ Voltages (B, n_freq, n_meas) → SharedEncoder → BLC → FusionDecoder → Res
 **Variants**:
 - `SFSBLC` - Full model with all components
 - `SFSBLC_Light` - Lightweight version for quick prototyping (fewer parameters)
+- `PhysicsInformedEIT` - Physics-informed model with PDE constraints (in `models/universal_eit.py`)
 
 ### Unsupervised Training Philosophy
 
@@ -88,9 +109,11 @@ The measurement consistency loss uses either:
 | `data/root_simulator.py` | Random root structure generation (taproot/fibrous/herringbone) |
 | `data/generate_dataset.py` | Generates HDF5 datasets with simulated measurements |
 | `training/unsupervised_loop.py` | Main training loop with physics-constrained losses |
-| `training/loss.py` | All loss functions (measurement consistency, TV, frequency cross-consistency, etc.) |
+| `training/loss.py` | Core loss functions (measurement consistency, TV, frequency cross-consistency, etc.) |
+| `training/precision_loss.py` | Precision-aware loss functions for improved reconstruction accuracy |
 | `inference/inference.py` | Production inference engine |
 | `inference/onnx_export.py` | ONNX export for deployment |
+| `models/universal_eit.py` | Universal phantom generator and physics-informed model |
 
 ### Configuration
 

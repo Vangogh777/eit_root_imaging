@@ -58,3 +58,6 @@ ENV/
 # Misc
 *.zip
 *.log
+
+# wandb
+wandb/

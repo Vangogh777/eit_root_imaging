@@ -6,6 +6,7 @@ M1 Mac 快速训练脚本
 用法:
     python train_m1.py              # 使用简化模型训练
     python train_m1.py --quick      # 快速测试 (100样本, 10轮)
+    python train_m1.py --wandb      # 启用 wandb 日志
 """
 
 import os
@@ -29,7 +30,31 @@ def main():
     parser.add_argument("--batch_size", type=int, default=16, help="批大小 (默认16)")
     parser.add_argument("--lr", type=float, default=1e-3, help="学习率 (默认0.001)")
     parser.add_argument("--hidden_dim", type=int, default=256, help="隐藏层维度 (默认256)")
+    parser.add_argument("--wandb", action="store_true", help="启用 wandb 日志")
+    parser.add_argument("--wandb_project", type=str, default="eit-root-imaging", help="wandb 项目名")
     args = parser.parse_args()
+
+    # ============ wandb 初始化 ============
+    use_wandb = args.wandb
+    if use_wandb:
+        try:
+            import wandb
+            wandb.init(
+                project=args.wandb_project,
+                config={
+                    "n_train": args.n_train if not args.quick else 100,
+                    "n_val": args.n_val if not args.quick else 20,
+                    "epochs": args.epochs if not args.quick else 10,
+                    "batch_size": args.batch_size,
+                    "lr": args.lr,
+                    "hidden_dim": args.hidden_dim,
+                    "quick_mode": args.quick,
+                }
+            )
+            print(f"[wandb] 已连接: {wandb.run.url}")
+        except ImportError:
+            print("[WARN] wandb 未安装，跳过。运行: pip install wandb")
+            use_wandb = False
 
     print("=" * 60)
     print("🚀 M1 Mac 训练")
@@ -171,6 +196,16 @@ def main():
 
         print(f"  Epoch {epoch:2d}/{N_EPOCHS} | Loss: {epoch_loss:.6f} | Val: {val_loss:.6f} | RE: {val_re:.4f}")
 
+        # wandb 日志
+        if use_wandb:
+            wandb.log({
+                "epoch": epoch,
+                "train/loss": epoch_loss,
+                "val/loss": val_loss,
+                "val/RE": val_re,
+                "train/lr": scheduler.get_last_lr()[0],
+            })
+
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_state = model.state_dict().copy()
@@ -210,6 +245,15 @@ def main():
         }
     }, save_path)
     print(f"💾 模型已保存: {save_path}")
+
+    # wandb 保存模型
+    if use_wandb:
+        import wandb
+        artifact = wandb.Artifact("m1-model", type="model", metadata={"val_re": val_re})
+        artifact.add_file(save_path)
+        wandb.log_artifact(artifact)
+        wandb.finish()
+        print("[wandb] 日志已同步")
 
 if __name__ == "__main__":
     main()

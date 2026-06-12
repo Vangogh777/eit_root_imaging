@@ -146,9 +146,14 @@ class UnsupervisedTrainer:
                                           steps_per_epoch=len(train_loader))
 
         # --- 日志 ---
+        log_cfg = self.cfg.get('logging', {})
         self.logger = TrainLogger(
-            log_dir=self.cfg.get('logging', {}).get('log_dir', 'logs'),
-            use_tensorboard=self.cfg.get('logging', {}).get('use_tensorboard', True),
+            log_dir=log_cfg.get('log_dir', 'logs'),
+            use_tensorboard=log_cfg.get('use_tensorboard', True),
+            use_wandb=log_cfg.get('use_wandb', False),
+            wandb_project=log_cfg.get('wandb_project', 'eit-root-imaging'),
+            wandb_entity=log_cfg.get('wandb_entity', None),
+            config=self.cfg,
         )
         self.logger.save_config(self.cfg)
 
@@ -407,6 +412,9 @@ class UnsupervisedTrainer:
         plt.savefig(save_path, dpi=150)
         plt.close()
         print(f"  重建可视化: {save_path}")
+
+        # 记录图像到 wandb
+        self.logger.log_image(save_path, caption=f"Reconstruction Epoch {epoch}")
 
 
 if __name__ == "__main__":

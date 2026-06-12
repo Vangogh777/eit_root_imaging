@@ -15,6 +15,7 @@ meshio>=5.0
 tensorboard>=2.12.0
 tqdm>=4.65.0
 pyyaml>=6.0
+wandb>=0.15.0              # 实验跟踪 (可选)
 
 # 评估
 scikit-image>=0.21.0
