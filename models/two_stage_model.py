@@ -51,8 +51,11 @@ class TraditionalReconstructor:
         else:
             raise ValueError(f"不支持的方法: {method}")
 
-        # 参考电压（均匀场）
+        # 参考电压（均匀场）- 如果有 NaN 则设为零向量
         self.v0 = solver.V_uniform
+        if np.isnan(self.v0).any():
+            print("  [WARN] 参考电压 V_uniform 有 NaN，使用零向量")
+            self.v0 = np.zeros(solver.n_measurements)
         self.sigma0 = solver.sigma_uniform
 
     def reconstruct(self, voltage: np.ndarray) -> np.ndarray:
@@ -60,12 +63,14 @@ class TraditionalReconstructor:
         反演电导率分布
 
         参数:
-            voltage: (n_meas,) 差分电压
+            voltage: (n_meas,) 绝对电压（非差分）
 
         返回:
             sigma: (n_elems,) 电导率分布
         """
-        # pyEIT 反演
+        # pyEIT 反演: solve(v1, v0) 计算电导率变化
+        # v1: 当前测量电压（绝对）
+        # v0: 参考电压（均匀场）
         # 返回的是节点值 (n_nodes,)
         ds_nodes = self.eit.solve(voltage, self.v0)
 
@@ -91,7 +96,7 @@ class TraditionalReconstructor:
         批量反演
 
         参数:
-            voltages: (B, n_meas) 差分电压
+            voltages: (B, n_meas) 绝对电压（非差分）
 
         返回:
             sigmas: (B, n_elems) 电导率分布

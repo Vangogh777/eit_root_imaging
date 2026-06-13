@@ -124,30 +124,50 @@ def main():
         if os.path.exists(voltage_cache) and not args.generate:
             print(f"  从电压缓存加载: {voltage_cache}")
             vdata = np.load(voltage_cache)
-            train_voltages = vdata['train_voltages']
+            train_voltages = vdata['train_voltages']  # 差分电压
             val_voltages = vdata['val_voltages']
             train_target = vdata['train_sigmas']
             val_target = vdata['val_sigmas']
+
+            # BP 需要绝对电压，需要加回参考电压
+            # 但 V_uniform 可能是 NaN，所以用另一种方式：
+            # 直接从 target sigma 重新计算绝对电压
+            print("  重新计算绝对电压用于反演...")
+            from tqdm import tqdm
+
+            # 计算参考电压（均匀场）
+            sigma_uniform = np.full(n_elems, solver.gt_cfg['conductivity_soil'])
+            v_ref = solver.solve_current(sigma_uniform)  # 绝对电压
+
+            if np.isnan(v_ref).any():
+                print("  [WARN] 参考电压有 NaN，使用零向量")
+                v_ref = np.zeros(n_meas)
+
+            # 差分电压 + 参考电压 = 绝对电压
+            train_v_abs = train_voltages.squeeze(1) + v_ref
+            val_v_abs = val_voltages.squeeze(1) + v_ref
+
+            print(f"  绝对电压范围: [{train_v_abs.min():.2e}, {train_v_abs.max():.2e}]")
+
+            # 第一阶段: 传统反演
+            print("  执行传统反演...")
+            print("  训练集反演...")
+            train_coarse = reconstructor.batch_reconstruct(train_v_abs)
+            print("  验证集反演...")
+            val_coarse = reconstructor.batch_reconstruct(val_v_abs)
+
+            # 保存缓存
+            np.savez_compressed(
+                cache_path,
+                train_coarse=train_coarse,
+                train_target=train_target,
+                val_coarse=val_coarse,
+                val_target=val_target,
+            )
+            print(f"  数据已缓存: {cache_path}")
         else:
             print("  需要先生成电压数据，运行: python train_server.py --generate")
             return
-
-        # 第一阶段: 传统反演
-        print("  执行传统反演...")
-        print(f"  训练集反演...")
-        train_coarse = reconstructor.batch_reconstruct(train_voltages.squeeze(1))
-        print(f"  验证集反演...")
-        val_coarse = reconstructor.batch_reconstruct(val_voltages.squeeze(1))
-
-        # 保存缓存
-        np.savez_compressed(
-            cache_path,
-            train_coarse=train_coarse,
-            train_target=train_target,
-            val_coarse=val_coarse,
-            val_target=val_target,
-        )
-        print(f"  数据已缓存: {cache_path}")
 
     print(f"  粗略电导率范围: [{train_coarse.min():.4f}, {train_coarse.max():.4f}]")
     print(f"  目标电导率范围: [{train_target.min():.4f}, {train_target.max():.4f}]")
