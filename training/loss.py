@@ -38,19 +38,25 @@ class MeasurementConsistencyLoss(nn.Module):
     def __init__(self, mode: str = 'full_fem',
                  jacobian: Optional[torch.Tensor] = None,
                  forward_solver: Optional[Callable] = None,
-                 sigma_ref_value: float = 0.01):
+                 sigma_ref_value: float = 0.01,
+                 fem_interval: int = 5):
         """
         参数:
             mode: 'jacobian' | 'full_fem' | 'hybrid'
             jacobian: (n_freq, n_meas, n_elems) 预计算雅可比
             forward_solver: 正问题求解函数 (sigma_np) → (n_freq, n_meas) np数组
             sigma_ref_value: 参考电导率（土壤背景），默认 0.01 S/m
+            fem_interval: 每 N 步执行一次完整 FEM（N=1 每步都跑，N=5 每5步跑一次）
         """
         super().__init__()
         assert mode in ('jacobian', 'full_fem', 'hybrid'), f"未知模式: {mode}"
         self.mode = mode
         self.forward_solver = forward_solver
         self.sigma_ref_value = sigma_ref_value
+        self.fem_interval = fem_interval
+        self._fem_step = 0
+        self._cached_V_full = None
+        self._last_real_loss = 0.0
 
         if jacobian is not None:
             self.register_buffer('jacobian', jacobian)
@@ -89,31 +95,35 @@ class MeasurementConsistencyLoss(nn.Module):
 
         if use_full:
             # ════════════════════════════════════════════
-            # 方法A: 完整 FEM 正解（准确训练）
+            # 方法A: 完整 FEM 正解（间隔 fem_interval 步执行一次）
             # ════════════════════════════════════════════
-            # 1. 完整 FEM 求解 → 真实电压（无梯度）
-            sigma_np = sigma_pred.detach().cpu().numpy()
-            V_full_list = []
-            for b in range(B):
-                V_b = self.forward_solver(sigma_np[b])  # (n_freq, n_meas)
-                V_full_list.append(V_b.astype(np.float32))
-            V_full = torch.from_numpy(np.stack(V_full_list)).to(device)
+            run_fem = (self._fem_step % self.fem_interval == 0
+                       or self._cached_V_full is None)
 
-            # 2. 保存真实 FEM 损失（用于监控，始终为正）
-            loss_real = F.mse_loss(V_full, voltages_measured)
-            self._last_real_loss = loss_real.item()
+            if run_fem:
+                # 完整 FEM 求解 → 缓存 V_full
+                sigma_np = sigma_pred.detach().cpu().numpy()
+                V_full_list = []
+                for b in range(B):
+                    V_b = self.forward_solver(sigma_np[b])  # (n_freq, n_meas)
+                    V_full_list.append(V_b.astype(np.float32))
+                self._cached_V_full = torch.from_numpy(np.stack(V_full_list)).to(device)
+                self._last_real_loss = F.mse_loss(
+                    self._cached_V_full, voltages_measured).item()
 
-            # 3. Jacobian 预测 + 双目标损失（始终为正，梯度正确）
-            #    loss_main: 让 V_jac 匹配 V_measured（原始目标）
-            #    loss_aux:  让 V_jac 匹配 V_full（保持 Jacobian 有效）
-            #    当 V_jac ≈ V_full 时，梯度 ≈ dMSE(F(σ), V_meas)/dσ
+            V_full = self._cached_V_full
+
+            # Jacobian 预测（每次都有梯度）+ 双目标损失
             if self.jacobian is not None:
                 V_jac = self._jacobian_forward(sigma_pred, sigma_ref)  # 可微分
                 loss_main = F.mse_loss(V_jac, voltages_measured)
+                # 辅助：让 V_jac 匹配缓存的 V_full
                 loss_aux = F.mse_loss(V_jac, V_full.detach())
                 total_loss = loss_main + 0.1 * loss_aux
             else:
-                total_loss = loss_real  # 无梯度，仅监控
+                total_loss = F.mse_loss(V_full, voltages_measured)
+
+            self._fem_step += 1
 
         elif self.mode == 'hybrid' and self.forward_solver is not None:
             # 混合模式：每步都用 Jacobian，定期用 FEM 校正

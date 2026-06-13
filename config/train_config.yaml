@@ -33,9 +33,11 @@ training:
     sigma_deviation: 0.1           # λ_dev — σ 偏离惩罚（新增，约束 Jacobian 线性化点附近）
 
   # 测量一致性损失模式
-  # 'full_fem'  = 完整 FEM 正解（准确，推荐）
-  # 'jacobian'  = 雅可比线性近似（快速，备用）
+  # 'full_fem'  = 完整 FEM 正解 + Jacobian 混合（推荐）
+  # 'jacobian'  = 纯雅可比线性近似（快速，备用）
   measurement_mode: "full_fem"
+  # FEM 求解间隔：每 N 步跑一次完整 FEM，其余用缓存（N=1 每步跑）
+  fem_interval: 5
 
   # 边界电压采样策略
   voltage_sampling:

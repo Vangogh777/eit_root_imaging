@@ -162,6 +162,7 @@ class UnsupervisedTrainer:
                 jacobian=self._load_jacobian(),
                 forward_solver=forward_solver,
                 sigma_ref_value=sigma_ref_value,
+                fem_interval=train_cfg.get('fem_interval', 5),
             ),
             'tv': TVRegularizationLoss(
                 element_centers=self._get_element_centers(),
