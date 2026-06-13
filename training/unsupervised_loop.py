@@ -36,6 +36,7 @@ from training.loss import (
     FrequencyCrossConsistencyLoss,
     BLCCorrectionLoss,
     SmoothnessLoss,
+    SigmaDeviationLoss,
     AdaptiveLossWeighter,
 )
 from training.optimizer import build_optimizer, build_scheduler
@@ -150,6 +151,7 @@ class UnsupervisedTrainer:
             'freq': FrequencyCrossConsistencyLoss(),
             'blc': BLCCorrectionLoss(),
             'smooth': SmoothnessLoss(),
+            'dev': SigmaDeviationLoss(sigma_ref_value=sigma_ref_value),
         }
         self.loss_weights = {
             'meas': weights['measurement_consistency'],
@@ -157,6 +159,7 @@ class UnsupervisedTrainer:
             'freq': weights['frequency_cross'],
             'blc': weights['blc_correction'],
             'smooth': weights['smoothness'],
+            'dev': weights.get('sigma_deviation', 0.1),
         }
 
         # 自适应权重（可选）
@@ -297,6 +300,8 @@ class UnsupervisedTrainer:
                 losses['blc'] = torch.tensor(0.0, device=self.device)
             # 平滑度
             losses['smooth'] = self.loss_fns['smooth'](sigma_pred)
+            # σ 偏离惩罚（约束在 Jacobian 线性化点附近）
+            losses['dev'] = self.loss_fns['dev'](sigma_pred)
 
             # --- 加权总损失 ---
             if self.adaptive_weighter:

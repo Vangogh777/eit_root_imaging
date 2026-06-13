@@ -23,13 +23,14 @@ training:
   grad_clip: 1.0
   warmup_epochs: 10
 
-  # 损失函数权重（经过调优的初始值）
+  # 损失函数权重
   loss_weights:
     measurement_consistency: 1.0   # λ_m — 核心物理约束
-    tv_regularization: 0.005       # λ_tv — 边缘保持（降低权重避免过度平滑）
+    tv_regularization: 0.05        # λ_tv — 边缘保持（↑ 由 0.005 提升至 0.05）
     frequency_cross: 0.1           # λ_freq — 多频一致性
     smoothness: 0.02               # λ_smooth — 空间平滑
     blc_correction: 0.1            # λ_blc — BLC 校正约束
+    sigma_deviation: 0.1           # λ_dev — σ 偏离惩罚（新增，约束 Jacobian 线性化点附近）
 
   # 边界电压采样策略
   voltage_sampling:

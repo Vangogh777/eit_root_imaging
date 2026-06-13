@@ -104,8 +104,10 @@ class MeasurementConsistencyLoss(nn.Module):
         else:
             raise ValueError("需要 jacobian 或 forward_solver")
 
-        # 均方误差
-        loss = F.mse_loss(V_pred, voltages_measured)
+        # 归一化均方误差（幅度不敏感的相对误差形式）
+        # 避免大信号主导梯度，让小结构也能被学到
+        v_norm = voltages_measured.norm(dim=-1, keepdim=True).detach() + 1e-8
+        loss = F.mse_loss(V_pred / v_norm, voltages_measured / v_norm)
         return loss
 
 
@@ -271,6 +273,35 @@ class SmoothnessLoss(nn.Module):
         diff = sigma[:, 1:] - sigma[:, :-1]
         smooth_loss = diff.pow(2).mean()
         return smooth_loss
+
+
+class SigmaDeviationLoss(nn.Module):
+    """
+    电导率偏离惩罚 L_dev
+    =====================
+    约束 σ_pred 不远离 σ_ref=0.01（Jacobian 的线性化点）。
+    因为 Jacobian 线性近似只在 σ_ref 附近有效，
+    偏离太大会导致物理意义完全失真。
+
+    数学: L_dev = ||σ_pred - σ_ref||² / n_elems
+    """
+
+    def __init__(self, sigma_ref_value: float = 0.01):
+        super().__init__()
+        self.sigma_ref_value = sigma_ref_value
+
+    def forward(self, sigma_pred: torch.Tensor) -> torch.Tensor:
+        """
+        参数:
+            sigma_pred: (B, n_elems) 预测电导率
+
+        返回:
+            loss: 标量
+        """
+        sigma_ref = torch.full_like(sigma_pred, self.sigma_ref_value)
+        diff = sigma_pred - sigma_ref
+        loss = diff.pow(2).mean()  # 平均到每个单元
+        return loss
 
 
 class AdaptiveLossWeighter(nn.Module):
