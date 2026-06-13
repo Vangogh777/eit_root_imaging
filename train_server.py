@@ -102,8 +102,8 @@ def main():
     parser.add_argument("--n_val", type=int, default=1000, help="验证样本数")
     parser.add_argument("--epochs", type=int, default=200, help="训练轮数")
     parser.add_argument("--batch_size", type=int, default=64, help="批大小")
-    parser.add_argument("--lr", type=float, default=3e-3, help="学习率")
-    parser.add_argument("--hidden_dim", type=int, default=512, help="隐藏层维度")
+    parser.add_argument("--lr", type=float, default=1e-3, help="学习率")
+    parser.add_argument("--hidden_dim", type=int, default=1024, help="隐藏层维度")
     parser.add_argument("--model", type=str, default="improved_gnn", choices=["simple", "physics", "gnn", "linear", "deep", "improved_gnn"], help="模型类型")
     parser.add_argument("--output", type=str, default="checkpoints/server_model.pt", help="输出路径")
     parser.add_argument("--wandb", action="store_true", help="启用 wandb 日志")
@@ -324,22 +324,8 @@ def main():
 
             out = model(V_batch)
 
-            # 组合损失：MSE + 相对误差 + 感知损失
-            pred = out['sigma']
-
-            # 1. MSE 损失
-            mse_loss = torch.nn.functional.mse_loss(pred, S_batch)
-
-            # 2. 相对误差损失（归一化）
-            re_loss = torch.norm(pred - S_batch, dim=-1) / (torch.norm(S_batch, dim=-1) + 1e-8)
-            re_loss = re_loss.mean()
-
-            # 3. 梯度损失（保持空间结构）
-            grad_loss = torch.mean(torch.abs(pred[:, 1:] - pred[:, :-1]) -
-                                   torch.abs(S_batch[:, 1:] - S_batch[:, :-1]))
-
-            # 总损失
-            loss = mse_loss + 0.5 * re_loss + 0.1 * torch.abs(grad_loss)
+            # 简单 MSE 损失
+            loss = torch.nn.functional.mse_loss(out['sigma'], S_batch)
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
