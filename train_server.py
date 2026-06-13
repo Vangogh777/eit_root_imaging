@@ -26,6 +26,7 @@ from models.simple_model import SimpleSFSBLC
 from models.universal_eit import PhysicsInformedEIT, UniversalPhantomGenerator
 from models.eit_gnn_model import EITModelGNN, EITModelSimple
 from models.linear_model import LinearEITModel, DeepEITModel
+from models.improved_gnn_model import ImprovedEITModelGNN
 
 def get_cache_path(n_train, n_val, n_elems):
     """获取数据缓存路径"""
@@ -103,7 +104,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=64, help="批大小")
     parser.add_argument("--lr", type=float, default=3e-3, help="学习率")
     parser.add_argument("--hidden_dim", type=int, default=512, help="隐藏层维度")
-    parser.add_argument("--model", type=str, default="linear", choices=["simple", "physics", "gnn", "linear", "deep"], help="模型类型")
+    parser.add_argument("--model", type=str, default="improved_gnn", choices=["simple", "physics", "gnn", "linear", "deep", "improved_gnn"], help="模型类型")
     parser.add_argument("--output", type=str, default="checkpoints/server_model.pt", help="输出路径")
     parser.add_argument("--wandb", action="store_true", help="启用 wandb 日志")
     parser.add_argument("--wandb_project", type=str, default="eit-root-imaging", help="wandb 项目名")
@@ -220,6 +221,17 @@ def main():
         centers = centers[:, :2]  # 只取 x, y 坐标
     elements = solver.mesh.element
 
+    # 预计算 Jacobian（用于 improved_gnn）
+    jacobian = None
+    if args.model == "improved_gnn":
+        print("  预计算 Jacobian 矩阵...")
+        try:
+            jacobian = solver.get_jacobian()
+            print(f"  Jacobian: {jacobian.shape}")
+        except Exception as e:
+            print(f"  [WARN] Jacobian 计算失败: {e}")
+            print("  将使用随机初始化的 Jacobian 特征")
+
     if args.model == "simple":
         model = SimpleSFSBLC(
             input_dim=n_meas,
@@ -241,6 +253,18 @@ def main():
         # 设置网格结构
         model.setup_mesh(centers, elements)
         print(f"  GNN 网格已设置: {n_elems} 单元")
+    elif args.model == "improved_gnn":
+        # 改进版 GNN - 利用 Jacobian 物理信息
+        model = ImprovedEITModelGNN(
+            input_dim=n_meas,
+            n_frequencies=n_freq,
+            n_elems=n_elems,
+            hidden_dim=args.hidden_dim,
+            n_res_blocks=6,
+            gnn_layers=4,
+        ).to(device)
+        model.setup_mesh(centers, elements, jacobian)
+        print(f"  改进版 GNN 已设置: {n_elems} 单元, Jacobian={'有' if jacobian is not None else '无'}")
     elif args.model == "linear":
         # 线性模型 - 最容易训练
         model = LinearEITModel(
