@@ -51,15 +51,18 @@ def compute_ssim_on_mesh(pred: np.ndarray, target: np.ndarray,
     """
     from scipy.interpolate import griddata
 
+    # 只取前两维坐标（x, y），处理可能的3D/4D坐标
+    centers_2d = centers[:, :2] if centers.shape[1] > 2 else centers
+
     # 创建规则网格
-    radius = np.max(np.abs(centers)) * 1.1
+    radius = np.max(np.abs(centers_2d)) * 1.1
     x = np.linspace(-radius, radius, resolution)
     y = np.linspace(-radius, radius, resolution)
     X, Y = np.meshgrid(x, y)
 
     # 插值
-    pred_img = griddata(centers, pred, (X, Y), method='linear', fill_value=0)
-    target_img = griddata(centers, target, (X, Y), method='linear', fill_value=0)
+    pred_img = griddata(centers_2d, pred, (X, Y), method='linear', fill_value=0)
+    target_img = griddata(centers_2d, target, (X, Y), method='linear', fill_value=0)
 
     # 创建圆形mask
     mask = (X**2 + Y**2) <= radius**2
