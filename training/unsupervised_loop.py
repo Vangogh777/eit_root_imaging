@@ -263,6 +263,7 @@ class UnsupervisedTrainer:
                 lr=self.optimizer.param_groups[0]['lr'],
                 extra_metrics={
                     'train_meas': train_metrics.get('meas', 0),
+                    'train_meas_real': train_metrics.get('meas_real', 0),
                     'train_tv': train_metrics.get('tv', 0),
                     'val_re': val_metrics.get('re', 0),
                     'val_cc': val_metrics.get('cc', 0),
@@ -306,6 +307,11 @@ class UnsupervisedTrainer:
             losses['meas'] = self.loss_fns['meas'](
                 sigma_pred, voltages
             )
+            # 记录真实 FEM 损失（若可用）
+            if hasattr(self.loss_fns['meas'], '_last_real_loss'):
+                losses['meas_real'] = self.loss_fns['meas']._last_real_loss
+            else:
+                losses['meas_real'] = losses['meas']
             # TV 正则化
             losses['tv'] = self.loss_fns['tv'](sigma_pred)
             # 频率交叉一致性
@@ -380,7 +386,11 @@ class UnsupervisedTrainer:
 
                 # 无监督损失（只用测量一致性）
                 loss = self.loss_fns['meas'](sigma_pred, voltages)
-                total_loss += loss.item()
+                # 记录真实 FEM 损失（若可用）
+                if hasattr(self.loss_fns['meas'], '_last_real_loss'):
+                    total_loss += self.loss_fns['meas']._last_real_loss
+                else:
+                    total_loss += loss.item()
 
                 all_preds.append(sigma_pred.cpu())
                 all_targets.append(sigmas_gt.cpu())
