@@ -333,9 +333,10 @@ class UnsupervisedTrainer:
             if self.adaptive_weighter:
                 total = self.adaptive_weighter(losses)
             else:
+                # meas_real 仅用于监控，不参与梯度
                 total = sum(
                     self.loss_weights[k] * losses[k]
-                    for k in losses
+                    for k in losses if k in self.loss_weights
                 )
 
             # --- 反向传播 ---
