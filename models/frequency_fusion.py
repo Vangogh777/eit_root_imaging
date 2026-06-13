@@ -160,6 +160,6 @@ class FrequencyFusionDecoder(nn.Module):
         # 频率门控影响主路径和残差路径的平衡
         gate_bias = fgate.mean(dim=-1, keepdim=True)  # (B, 1)
         sigma = main + residual * torch.sigmoid(gate_bias)
-        sigma = torch.sigmoid(sigma)  # 归一化到 (0, 1)
 
+        # 注：SFSBLC 的 forward() 中会统一做 sigmoid + 范围缩放
         return sigma, attn_weights

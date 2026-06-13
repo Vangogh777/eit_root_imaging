@@ -37,14 +37,14 @@ class BaseLayerCorrection(nn.Module):
 
         # 1. 全局基础层提取器
         # 将多频编码特征聚合为"基础层"（低分辨率全局结构）
+        # 输入: (B, F) — 各频率隐特征均值
+        # 输出: (B, n_elems)
         self.base_extractor = nn.Sequential(
-            nn.AdaptiveAvgPool1d(1),     # 每个频率压缩为一个值
-            nn.Flatten(),                 # (B, F)
-            nn.Linear(n_frequencies, hidden_dim // 4),
+            nn.Linear(n_frequencies, hidden_dim // 4),   # (B, F) → (B, H/4)
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 4, n_elems),
-            nn.Tanh(),                   # 输出归一化到 [-1, 1]
+            nn.Linear(hidden_dim // 4, n_elems),         # (B, H/4) → (B, n_elems)
+            nn.Tanh(),                                    # 输出归一化到 [-1, 1]
         )
 
         # 2. 校正预测器
@@ -67,8 +67,11 @@ class BaseLayerCorrection(nn.Module):
         ])
 
         # 4. 校正门控：多少校正量被应用
+        # 输入: h_f (B,D) + base_scalar (B,1) → (B, D+1)
         self.correction_gate = nn.Sequential(
-            nn.Linear(hidden_dim + n_frequencies, 1),
+            nn.Linear(hidden_dim + 1, hidden_dim // 4),
+            nn.GELU(),
+            nn.Linear(hidden_dim // 4, 1),
             nn.Sigmoid()
         )
 
@@ -85,8 +88,9 @@ class BaseLayerCorrection(nn.Module):
         B, F, D = h.shape
 
         # 1. 提取基础层（全局结构估计）
-        h_pool = h.mean(dim=-1, keepdim=True)  # (B, F, 1) 对hidden_dim维度池化
-        base = self.base_extractor(h_pool.transpose(1, 2))  # (B, n_elems) — 基础层
+        # 将各频率的隐特征平均为标量，得到 (B, F) → 线性投影到单元空间
+        h_pool = h.mean(dim=-1)             # (B, F) 各频率隐空间均值
+        base = self.base_extractor(h_pool)  # (B, n_elems) — 基础层
 
         # 2. 为每个频率计算校正
         h_corrected = []
@@ -102,8 +106,8 @@ class BaseLayerCorrection(nn.Module):
             delta = correction + freq_specific  # (B, D)
 
             # 门控：多少校正被应用
-            base_embed = base.mean(dim=-1, keepdim=True).expand(-1, D)  # (B, D)
-            gate_input = torch.cat([h_f, base_embed], dim=-1)
+            base_scalar = base.mean(dim=-1, keepdim=True)  # (B, 1) 全局结构强度
+            gate_input = torch.cat([h_f, base_scalar], dim=-1)  # (B, D+1)
             gate = self.correction_gate(gate_input)   # (B, 1)
             gate_values.append(gate.squeeze(-1))       # (B,)
 

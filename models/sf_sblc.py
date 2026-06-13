@@ -46,7 +46,8 @@ class SFSBLC(nn.Module):
                  n_frequencies: int = 6, n_elems: int = 1500,
                  n_encoder_layers: int = 4, n_res_blocks: int = 8,
                  dropout: float = 0.1, use_attention: bool = True,
-                 backbone_mode: str = "mlp"):
+                 backbone_mode: str = "mlp",
+                 sigma_min: float = 0.005, sigma_max: float = 0.1):
         super().__init__()
 
         self.input_dim = input_dim
@@ -94,6 +95,10 @@ class SFSBLC(nn.Module):
         # 5. 全局残差连接（从BLC基础层直接到输出）
         self.global_residual = nn.Linear(n_elems, n_elems)
 
+        # 6. 输出范围缩放（电导率在 0.005~0.1 S/m 之间）
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
+
         self._init_weights()
 
     def _init_weights(self):
@@ -140,6 +145,9 @@ class SFSBLC(nn.Module):
         # 基础层残差（直接从BLC输出跳到最终输出）
         base_residual = self.global_residual(base_map)
         sigma = sigma + 0.1 * base_residual
+
+        # 6. 输出范围缩放至物理电导率范围 [sigma_min, sigma_max]
+        sigma = torch.sigmoid(sigma) * (self.sigma_max - self.sigma_min) + self.sigma_min
 
         return {
             'sigma': sigma,

@@ -78,24 +78,7 @@ class UnsupervisedTrainer:
         model_cfg = self.cfg['model']
         train_cfg = self.cfg['training']
 
-        # --- 模型 ---
-        if model is None:
-            self.model = SFSBLC(
-                input_dim=model_cfg['input_dim'],
-                hidden_dim=model_cfg['hidden_dim'],
-                n_frequencies=model_cfg['n_frequencies'],
-                n_elems=model_cfg.get('n_elems', 1500),
-                n_res_blocks=model_cfg.get('n_res_blocks', 8),
-                dropout=model_cfg.get('dropout', 0.1),
-                use_attention=model_cfg.get('use_attention', True),
-            ).to(self.device)
-        else:
-            self.model = model.to(self.device)
-
-        total_params = sum(p.numel() for p in self.model.parameters())
-        print(f"模型参数: {total_params:,}")
-
-        # --- 数据 ---
+        # --- 数据（优先创建，以便从 HDF5 获取 n_elems 等元数据） ---
         if datamodule is None:
             data_cfg = self.cfg['data']
             self.dm = EITDataModule(
@@ -108,12 +91,56 @@ class UnsupervisedTrainer:
         else:
             self.dm = datamodule
 
+        # 从数据集读取实际 n_elems（若数据集存在），否则回退到配置值
+        try:
+            actual_n_elems = self.dm.train_dataset.n_elems
+            config_n_elems = model_cfg.get('n_elems', 1500)
+            if actual_n_elems != config_n_elems:
+                print(f"  [INFO] 数据集 n_elems={actual_n_elems} "
+                      f"≠ 配置 n_elems={config_n_elems}，使用数据集值")
+            n_elems = actual_n_elems
+        except Exception:
+            n_elems = model_cfg.get('n_elems', 1500)
+            print(f"  [INFO] 无法读取数据集，使用配置 n_elems={n_elems}")
+
+        # --- 模型 ---
+        if model is None:
+            self.model = SFSBLC(
+                input_dim=model_cfg['input_dim'],
+                hidden_dim=model_cfg['hidden_dim'],
+                n_frequencies=model_cfg['n_frequencies'],
+                n_elems=n_elems,
+                n_res_blocks=model_cfg.get('n_res_blocks', 8),
+                dropout=model_cfg.get('dropout', 0.1),
+                use_attention=model_cfg.get('use_attention', True),
+            ).to(self.device)
+        else:
+            self.model = model.to(self.device)
+
+        total_params = sum(p.numel() for p in self.model.parameters())
+        print(f"模型参数: {total_params:,}")
+
         # --- 损失函数 ---
         weights = train_cfg['loss_weights']
+
+        # 从 mesh_config 读取土壤背景电导率
+        sigma_ref_value = 0.01  # 默认值
+        mesh_config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'config', 'mesh_config.yaml'
+        )
+        try:
+            with open(mesh_config_path, 'r', encoding='utf-8') as f:
+                mesh_cfg = yaml.safe_load(f)
+                sigma_ref_value = mesh_cfg['ground_truth']['conductivity_soil']
+        except Exception:
+            pass
+
         self.loss_fns = {
             'meas': MeasurementConsistencyLoss(
                 use_jacobian=True,
                 jacobian=self._load_jacobian(),
+                sigma_ref_value=sigma_ref_value,
             ),
             'tv': TVRegularizationLoss(
                 element_centers=self._get_element_centers(),

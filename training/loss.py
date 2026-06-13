@@ -38,17 +38,20 @@ class MeasurementConsistencyLoss(nn.Module):
     def __init__(self, use_jacobian: bool = True,
                  jacobian: Optional[torch.Tensor] = None,
                  frequencies: Optional[list] = None,
-                 forward_solver: Optional[Callable] = None):
+                 forward_solver: Optional[Callable] = None,
+                 sigma_ref_value: float = 0.01):
         """
         参数:
             use_jacobian: True=雅可比线性近似, False=调用完整正解
             jacobian: (n_freq, n_meas, n_elems) 预计算雅可比
             frequencies: 频率列表
             forward_solver: 正问题求解函数 (sigma) → voltage
+            sigma_ref_value: 参考电导率（土壤背景），默认 0.01 S/m
         """
         super().__init__()
         self.use_jacobian = use_jacobian
         self.forward_solver = forward_solver
+        self.sigma_ref_value = sigma_ref_value
 
         if jacobian is not None:
             self.register_buffer('jacobian', jacobian)
@@ -73,20 +76,25 @@ class MeasurementConsistencyLoss(nn.Module):
 
         if self.use_jacobian and self.jacobian is not None:
             # 方法A: 雅可比线性近似（快速训练用）
-            # V_pred ≈ J · (σ_pred - σ_ref)
+            # V_pred[f,m] = Σ_e J[f,m,e] · (σ_pred[e] - σ_ref[e])
             J = self.jacobian  # (n_freq, n_meas, n_elems)
             J = J.unsqueeze(0).expand(B, -1, -1, -1)  # (B, n_freq, n_meas, n_elems)
 
             if sigma_ref is None:
-                sigma_ref = torch.zeros_like(sigma_pred)
+                # ★ 修复: 雅可比在土壤背景 σ=0.01 处计算，参考必须用相同的背景值
+                sigma_ref = torch.full_like(sigma_pred, self.sigma_ref_value)
 
+            # ★ 修复: matmul 收缩维度是 n_elems × n_elems
+            #   J: (B, n_freq, n_meas, n_elems)
+            #   δσ: (B, 1, n_elems, 1)  ← 必须让 n_elems 在倒数第二维
+            #   J @ δσ → (B, n_freq, n_meas, 1) → squeeze → (B, n_freq, n_meas)
             delta_sigma = sigma_pred - sigma_ref  # (B, n_elems)
-            delta_sigma = delta_sigma.unsqueeze(1).unsqueeze(1)  # (B, 1, 1, n_elems)
+            delta_sigma = delta_sigma.unsqueeze(1).unsqueeze(-1)  # (B, 1, n_elems, 1) ✅
             V_pred = (J @ delta_sigma).squeeze(-1)  # (B, n_freq, n_meas)
 
         elif self.forward_solver is not None:
-            # 方法B: 调用完整正问题求解器（精确训练用）
-            # 注意: 需要在每个 step 调用 pyEIT，较慢
+            # 方法B: 使用完整 pyEIT 正问题求解器（验证用，精确但慢）
+            # 注意: 训练时不要用这条路径——每个 step 调 pyEIT 会极慢
             V_pred_list = []
             for b in range(B):
                 sigma_b = sigma_pred[b].detach().cpu().numpy()
@@ -128,23 +136,30 @@ class TVRegularizationLoss(nn.Module):
         self.edge_weights = self._compute_edge_weights()
 
     def _compute_edge_weights(self) -> torch.Tensor:
-        """计算相邻单元的边权重（基于共享边）"""
-        n_elems = self.element_centers.shape[0]
-        # 找共享边的单元对（邻接矩阵）
-        # 简化：用距离近的单元对近似
+        """计算相邻单元的边权重（基于K近邻）"""
         centers = self.element_centers.cpu().numpy()
-        from scipy.spatial import Delaunay
-        tri = Delaunay(centers)
-        # 边列表 + 权重（距离倒数）
+        n_elems = centers.shape[0]
+
+        # 只取前2维坐标（2D网格）
+        if centers.shape[1] > 2:
+            centers = centers[:, :2]
+
+        # 使用 KNN 找相邻单元（比 Delaunay 更鲁棒）
+        from sklearn.neighbors import NearestNeighbors
+        nn = NearestNeighbors(n_neighbors=min(8, n_elems), algorithm='kd_tree')
+        nn.fit(centers)
+        distances, indices = nn.kneighbors(centers)  # (n_elems, k)
+
+        # 构建边列表（每个单元与最近的 k-1 个邻居的边）
         edges = set()
-        for simplex in tri.simplices:
-            for i in range(3):
-                for j in range(i+1, 3):
-                    edge = (min(simplex[i], simplex[j]),
-                            max(simplex[i], simplex[j]))
-                    edges.add(edge)
+        for i in range(n_elems):
+            for j in indices[i, 1:]:  # 跳过自己（索引0）
+                edge = (min(i, int(j)), max(i, int(j)))
+                edges.add(edge)
+
         edges = list(edges)
         edge_idx = torch.tensor(edges, dtype=torch.long).T  # (2, n_edges)
+        print(f"  TV: {n_elems} 单元, {edge_idx.shape[1]} 条边")
         return edge_idx
 
     def forward(self, sigma: torch.Tensor) -> torch.Tensor:

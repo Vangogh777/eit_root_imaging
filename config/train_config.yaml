@@ -1,53 +1,56 @@
 # ══════════════════════════════════════════
-# 训练配置
+# 训练配置 — 通用高质量版本
 # ══════════════════════════════════════════
 
 model:
-  name: "sf_sblc_v1"
-  input_dim: 256             # 单频测量电压维度（取决于电极数×模式）
-  n_frequencies: 6           # 频率数（与 mesh_config 一致）
-  hidden_dim: 256            # 降低隐藏层维度 (原512)
-  n_res_blocks: 4            # 减少残差块数 (原8)
+  name: "sf_sblc_v2"
+  # ★ 修正: 16电极相邻模式 → n_meas = 16 × 13 = 208（不是 256）
+  input_dim: 208
+  n_frequencies: 6
+  # ★ 修正: 网格单元数 4424（不是 1500），由 mesh_config 中 h0=0.004 决定
+  n_elems: 4424
+  hidden_dim: 512            # 提升容量以匹配 4424 输出
+  n_res_blocks: 8            # 加深残差堆叠
   dropout: 0.1
-  use_attention: false       # 关闭注意力 (原true)
+  use_attention: true        # 打开跨频率注意力
 
 training:
-  batch_size: 16              # 降低batch size (原32)
-  epochs: 50                  # 减少epochs (原200)
-  learning_rate: 1e-3
-  lr_scheduler: "cosine"     # cosine / step / plateau
+  batch_size: 32
+  epochs: 300                # 更多迭代以保证收敛
+  learning_rate: 3e-4        # 更低学习率，训练更稳定
+  lr_scheduler: "cosine"
   weight_decay: 1e-5
   grad_clip: 1.0
-  warmup_epochs: 5           # 减少warmup (原10)
+  warmup_epochs: 10
 
-  # 损失函数权重
+  # 损失函数权重（经过调优的初始值）
   loss_weights:
-    measurement_consistency: 1.0   # λ_m
-    tv_regularization: 0.01        # λ_tv
-    frequency_cross: 0.1           # λ_freq
-    smoothness: 0.05               # λ_smooth
-    blc_correction: 0.1            # λ_blc
+    measurement_consistency: 1.0   # λ_m — 核心物理约束
+    tv_regularization: 0.005       # λ_tv — 边缘保持（降低权重避免过度平滑）
+    frequency_cross: 0.1           # λ_freq — 多频一致性
+    smoothness: 0.02               # λ_smooth — 空间平滑
+    blc_correction: 0.1            # λ_blc — BLC 校正约束
 
   # 边界电压采样策略
   voltage_sampling:
     strategy: "random_mask"   # random_mask / uniform / full
-    mask_ratio: 0.3           # 训练时随机掩码 30% 测量通道
+    mask_ratio: 0.2           # 训练时随机掩码 20% 测量通道（数据增强）
 
 data:
-  dataset_path: "./data/generated/eit_dataset.h5"  # generate_dataset.py 输出
-  val_dataset_path: "./data/generated/eit_dataset.h5"   # 共用同一文件，split 区分
-  test_dataset_path: "./data/generated/eit_dataset.h5"  # 共用同一文件，split 区分
-  jacobian_path: "./data/generated/jacobian.npy"        # precompute_jacobian.py 输出
+  dataset_path: "./data/generated/eit_dataset.h5"
+  val_dataset_path: "./data/generated/eit_dataset.h5"
+  test_dataset_path: "./data/generated/eit_dataset.h5"
+  jacobian_path: "./data/generated/jacobian.npy"
   num_workers: 4
   prefetch_factor: 2
 
 logging:
-  log_interval: 10           # steps
-  save_interval: 10          # epochs
-  vis_interval: 20           # epochs, 保存重建可视化
+  log_interval: 20           # steps
+  save_interval: 25          # epochs
+  vis_interval: 25           # epochs
   use_tensorboard: true
 
-  # Weights & Biases 配置
-  use_wandb: true            # 启用 wandb 日志
-  wandb_project: "eit-root-imaging"   # wandb 项目名
-  wandb_entity: null         # wandb 用户/团队名 (null = 默认用户)
+  # Weights & Biases
+  use_wandb: true
+  wandb_project: "eit-root-imaging"
+  wandb_entity: null
