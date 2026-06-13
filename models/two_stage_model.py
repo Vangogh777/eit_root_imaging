@@ -66,8 +66,17 @@ class TraditionalReconstructor:
             sigma: (n_elems,) 电导率分布
         """
         # pyEIT 反演
-        # 返回的是相对电导率变化 ds
-        ds = self.eit.solve(voltage, self.v0)
+        # 返回的是节点值 (n_nodes,)
+        ds_nodes = self.eit.solve(voltage, self.v0)
+
+        # 从节点值插值到单元值
+        # 每个单元取其3个节点的平均值
+        elements = self.mesh.element  # (n_elems, 3)
+        ds = np.mean(ds_nodes[elements], axis=1)  # (n_elems,)
+
+        # 处理 NaN（奇异矩阵情况）
+        if np.isnan(ds).any():
+            ds = np.nan_to_num(ds, nan=0.0)
 
         # 转换为绝对电导率
         sigma = self.sigma0 * (1 + ds)
