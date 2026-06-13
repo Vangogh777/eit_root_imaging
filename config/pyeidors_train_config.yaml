@@ -1,0 +1,52 @@
+# ══════════════════════════════════════════
+# PyEIDORS 数据训练配置
+# ══════════════════════════════════════════
+
+model:
+  name: "pyeidors_model"
+  input_dim: 208             # PyEIDORS 默认测量数 (16电极相邻模式)
+  n_frequencies: 6           # 频率数
+  hidden_dim: 512            # 隐藏层维度
+  n_res_blocks: 6            # 残差块数
+  dropout: 0.1
+  use_attention: false       # 关闭注意力节省显存
+
+training:
+  batch_size: 32              # Batch size
+  epochs: 200                 # 训练轮数
+  learning_rate: 1e-3
+  lr_scheduler: "cosine"
+  weight_decay: 1e-5
+  grad_clip: 1.0
+  warmup_epochs: 10
+
+  # 损失函数权重
+  loss_weights:
+    measurement_consistency: 1.0   # λ_m - 核心物理约束
+    tv_regularization: 0.01        # λ_tv - 边缘保持
+    frequency_cross: 0.1           # λ_freq - 多频一致性
+    smoothness: 0.05               # λ_smooth - 空间平滑
+    blc_correction: 0.1            # λ_blc - 基线校正
+
+  # 边界电压采样策略
+  voltage_sampling:
+    strategy: "full"         # PyEIDORS 数据更稳定，可用全部测量
+    mask_ratio: 0.0
+
+data:
+  # PyEIDORS 生成的数据路径
+  dataset_path: "./data/generated/pyeidors_dataset.h5"
+  val_dataset_path: "./data/generated/pyeidors_dataset.h5"
+  test_dataset_path: "./data/generated/pyeidors_dataset.h5"
+  jacobian_path: "./data/generated/pyeidors_jacobian.npy"
+  num_workers: 4
+  prefetch_factor: 2
+
+logging:
+  log_interval: 20
+  save_interval: 20
+  vis_interval: 25
+  use_tensorboard: true
+  use_wandb: true
+  wandb_project: "eit-pyeidors"
+  wandb_entity: null

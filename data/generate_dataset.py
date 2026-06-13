@@ -14,6 +14,8 @@ import yaml
 import argparse
 import numpy as np
 from tqdm import tqdm
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 # 添加项目根到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,10 +24,37 @@ from data.eit_forward import EITForwardSolver
 from data.root_simulator import RootSystemGenerator
 
 
+def _init_worker(config_path):
+    """每个 worker 进程初始化 solver 和 generator（不可 pickle，所以在进程内创建）"""
+    global _solver, _gen
+    from data.eit_forward import EITForwardSolver
+    from data.root_simulator import RootSystemGenerator
+    _solver = EITForwardSolver(config_path)
+    _gen = RootSystemGenerator(
+        _solver.mesh.node, _solver.mesh.element,
+        domain_radius=_solver.cfg['mesh']['radius'],
+        conductivity_root=_solver.gt_cfg['conductivity_root'],
+        conductivity_soil=_solver.gt_cfg['conductivity_soil']
+    )
+
+
+def _generate_one_worker(seed: int):
+    """worker 进程用的生成函数（顶层函数才能 pickle）"""
+    global _solver, _gen
+    sigma, mask = _gen.generate_with_label(seed=seed)
+    V = _solver.solve_multi_frequency(sigma)
+    noise_cfg = _solver.cfg['data']
+    noise_db_range = noise_cfg.get('noise_db_range', noise_cfg.get('noise_level_db', (-40, -20)))
+    noise_db = np.random.uniform(*noise_db_range)
+    V_noisy = _solver.add_noise(V, noise_db)
+    return sigma.astype(np.float32), mask.astype(np.float32), V_noisy.astype(np.float32), noise_db
+
+
 def generate_dataset(config_path: str = "config/mesh_config.yaml",
                      n_train: int = 10000, n_val: int = 500, n_test: int = 200,
                      output_dir: str = "data/generated",
-                     seed_start: int = 0, visualize: bool = False):
+                     seed_start: int = 0, visualize: bool = False,
+                     num_workers: int = 0):
     """
     生成完整的 EIT 数据集并保存为 HDF5 格式。
 
@@ -64,31 +93,27 @@ def generate_dataset(config_path: str = "config/mesh_config.yaml",
     )
 
     # 3. 生成数据
-    def _generate_one(seed: int):
-        """生成一对 (sigma, mask, voltage)"""
-        sigma, mask = gen.generate_with_label(seed=seed)
-        V = solver.solve_multi_frequency(sigma)
-        noise_db = np.random.uniform(*solver.cfg['data']['noise_db_range']
-                                      if 'noise_db_range' in solver.cfg['data']
-                                      else solver.cfg['data']['noise_level_db'])
-        V_noisy = solver.add_noise(V, noise_db)
-        return sigma, mask, V_noisy, noise_db
-
     def _generate_split(name: str, n: int, start_seed: int):
         """生成一个 split (train/val/test)"""
         print(f"[3/5] 生成 {name} 集 ({n} 样本) ...")
-        sigmas = np.zeros((n, n_elems), dtype=np.float32)
-        masks = np.zeros((n, n_elems), dtype=np.float32)
-        voltages = np.zeros((n, n_freq, n_meas), dtype=np.float32)
-        noise_dbs = np.zeros(n, dtype=np.float32)
+        seeds = [start_seed + i for i in range(n)]
 
-        for i in tqdm(range(n), desc=f"{name}"):
-            s, m, v, ndb = _generate_one(start_seed + i)
-            sigmas[i] = s
-            masks[i] = m
-            voltages[i] = v
-            noise_dbs[i] = ndb
+        if num_workers > 1:
+            # 多进程加速
+            n_proc = min(num_workers, cpu_count(), n)
+            print(f"  使用 {n_proc} 进程并行生成...")
+            with Pool(n_proc, initializer=_init_worker, initargs=(config_path,)) as pool:
+                results = list(tqdm(pool.imap(_generate_one_worker, seeds),
+                                    total=n, desc=f"{name}"))
+        else:
+            # 单进程（默认）
+            _init_worker(config_path)
+            results = [_generate_one_worker(seed) for seed in tqdm(seeds, desc=f"{name}")]
 
+        sigmas = np.stack([r[0] for r in results])
+        masks = np.stack([r[1] for r in results])
+        voltages = np.stack([r[2] for r in results])
+        noise_dbs = np.array([r[3] for r in results])
         return sigmas, masks, voltages, noise_dbs
 
     train_sigmas, train_masks, train_voltages, train_noise = \
@@ -194,6 +219,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default="data/generated")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--workers", type=int, default=0,
+                        help="并行进程数 (0=单进程)")
     args = parser.parse_args()
 
     generate_dataset(
@@ -203,5 +230,6 @@ if __name__ == "__main__":
         n_test=args.n_test,
         output_dir=args.output,
         seed_start=args.seed,
-        visualize=args.visualize
+        visualize=args.visualize,
+        num_workers=args.workers
     )

@@ -47,7 +47,8 @@ def check_data_files(config_path: str) -> dict:
 
 
 def run_data_generation(config_path: str, n_train: int = 10000,
-                         n_val: int = 500, n_test: int = 200):
+                         n_val: int = 500, n_test: int = 200,
+                         workers: int = 0):
     """运行数据生成管线"""
     proj_root = os.path.dirname(os.path.abspath(__file__))
     script = os.path.join(proj_root, 'data', 'generate_dataset.py')
@@ -66,6 +67,8 @@ def run_data_generation(config_path: str, n_train: int = 10000,
         "--n_val", str(n_val),
         "--n_test", str(n_test),
     ]
+    if workers > 0:
+        cmd += ["--workers", str(workers)]
     result = subprocess.run(cmd, cwd=proj_root)
     if result.returncode != 0:
         print("❌ 数据集生成失败！")
@@ -110,6 +113,8 @@ def main():
                         help="跳过雅可比矩阵预计算")
     parser.add_argument("--n_train", type=int, default=10000,
                         help="训练样本数")
+    parser.add_argument("--workers", type=int, default=0,
+                        help="数据生成并行进程数 (0=单进程, 建议服务器设为 CPU 核数)")
     args = parser.parse_args()
 
     # 加载配置
@@ -129,7 +134,8 @@ def main():
             print("🔍 未检测到数据集，自动生成中...")
         n_val = trainer.cfg['data'].get('val_samples', 500)
         n_test = trainer.cfg['data'].get('test_samples', 200)
-        run_data_generation(args.config, args.n_train, n_val, n_test)
+        run_data_generation(args.config, args.n_train, n_val, n_test,
+                            workers=args.workers)
     else:
         h5_rel = os.path.relpath(data_status['h5_path'],
                                  os.path.dirname(os.path.abspath(__file__)))
