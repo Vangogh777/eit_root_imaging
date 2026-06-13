@@ -42,6 +42,7 @@ from training.loss import (
 from training.optimizer import build_optimizer, build_scheduler
 from training.logger import TrainLogger
 from data.datasets.eit_dataset import EITDataset, EITDataModule
+from data.eit_forward import EITForwardSolver
 
 
 class UnsupervisedTrainer:
@@ -137,10 +138,29 @@ class UnsupervisedTrainer:
         except Exception:
             pass
 
+        # 初始化完整 FEM 正解求解器（用于精确测量损失）
+        forward_solver = None
+        try:
+            mesh_config_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                'config', 'mesh_config.yaml'
+            )
+            fem_solver = EITForwardSolver(mesh_config_path)
+            # 包装为 (sigma_np) → (n_freq, n_meas) 的接口
+            forward_solver = lambda s: fem_solver.solve_multi_frequency(s)
+        except Exception as e:
+            print(f"  [WARN] 无法初始化 FEM 求解器: {e}，回退到 Jacobian 模式")
+
+        meas_mode = train_cfg.get('measurement_mode', 'full_fem')
+        if meas_mode == 'full_fem' and forward_solver is None:
+            meas_mode = 'jacobian'
+            print("  [INFO] 回退到 Jacobian 模式")
+
         self.loss_fns = {
             'meas': MeasurementConsistencyLoss(
-                use_jacobian=True,
+                mode=meas_mode,
                 jacobian=self._load_jacobian(),
+                forward_solver=forward_solver,
                 sigma_ref_value=sigma_ref_value,
             ),
             'tv': TVRegularizationLoss(
