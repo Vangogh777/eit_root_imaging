@@ -36,20 +36,11 @@ class TraditionalReconstructor:
 
         # 创建反演器
         if method == 'bp':
-            self.eit = bp.BP(
-                mesh=self.mesh,
-                protocol=self.protocol,
-                solver='lsqr'  # 最小二乘求解器
-            )
+            self.eit = bp.BP(mesh=self.mesh, protocol=self.protocol)
+            self.eit.setup()
         elif method == 'jac':
-            self.eit = jac.JAC(
-                mesh=self.mesh,
-                protocol=self.protocol,
-                solver='lsqr',
-                p=0.5,          # Tikhonov 正则化参数
-                lam=0.01,       # 正则化权重
-                method='kotre'  # Kotre 方法
-            )
+            self.eit = jac.JAC(mesh=self.mesh, protocol=self.protocol)
+            self.eit.setup(p=0.5, lamb=0.01, method='kotre')
         else:
             raise ValueError(f"不支持的方法: {method}")
 
