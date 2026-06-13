@@ -353,13 +353,14 @@ class UnsupervisedTrainer:
             # --- 统计 ---
             total_loss += total.item()
             for k, v in losses.items():
-                metrics_sum[k] += v.item()
+                metrics_sum[k] += v.item() if hasattr(v, 'item') else v
             self.global_step += 1
 
             # --- 日志 (每 N 步) ---
             if batch_idx % log_interval == 0:
                 lr = self.optimizer.param_groups[0]['lr']
-                losses_dict = {k: v.item() for k, v in losses.items()}
+                losses_dict = {k: v.item() if hasattr(v, 'item') else v
+                               for k, v in losses.items()}
                 self.logger.log_batch(self.global_step, losses_dict, lr)
 
             pbar.set_postfix({'loss': f"{total.item():.4f}"})
