@@ -25,6 +25,7 @@ from data.eit_forward import EITForwardSolver
 from models.simple_model import SimpleSFSBLC
 from models.universal_eit import PhysicsInformedEIT, UniversalPhantomGenerator
 from models.eit_gnn_model import EITModelGNN, EITModelSimple
+from models.linear_model import LinearEITModel, DeepEITModel
 
 def get_cache_path(n_train, n_val, n_elems):
     """获取数据缓存路径"""
@@ -102,7 +103,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=64, help="批大小")
     parser.add_argument("--lr", type=float, default=3e-3, help="学习率")
     parser.add_argument("--hidden_dim", type=int, default=512, help="隐藏层维度")
-    parser.add_argument("--model", type=str, default="gnn", choices=["simple", "physics", "gnn"], help="模型类型")
+    parser.add_argument("--model", type=str, default="linear", choices=["simple", "physics", "gnn", "linear", "deep"], help="模型类型")
     parser.add_argument("--output", type=str, default="checkpoints/server_model.pt", help="输出路径")
     parser.add_argument("--wandb", action="store_true", help="启用 wandb 日志")
     parser.add_argument("--wandb_project", type=str, default="eit-root-imaging", help="wandb 项目名")
@@ -240,6 +241,21 @@ def main():
         # 设置网格结构
         model.setup_mesh(centers, elements)
         print(f"  GNN 网格已设置: {n_elems} 单元")
+    elif args.model == "linear":
+        # 线性模型 - 最容易训练
+        model = LinearEITModel(
+            input_dim=n_meas,
+            n_elems=n_elems,
+            hidden_dim=args.hidden_dim,
+        ).to(device)
+    elif args.model == "deep":
+        # 深度模型 - 更强表达能力
+        model = DeepEITModel(
+            input_dim=n_meas,
+            n_elems=n_elems,
+            hidden_dim=args.hidden_dim,
+            n_layers=8,
+        ).to(device)
     else:  # physics
         model = PhysicsInformedEIT(
             input_dim=n_meas,
