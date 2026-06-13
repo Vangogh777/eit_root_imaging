@@ -99,26 +99,21 @@ class MeasurementConsistencyLoss(nn.Module):
                 V_full_list.append(V_b.astype(np.float32))
             V_full = torch.from_numpy(np.stack(V_full_list)).to(device)
 
-            # 2. 真实误差（用于监控和梯度方向）
-            #    error = F(σ) - V_measured  → 越接近0越好
-            error = V_full - voltages_measured  # (B, n_freq, n_meas)
+            # 2. 保存真实 FEM 损失（用于监控，始终为正）
             loss_real = F.mse_loss(V_full, voltages_measured)
+            self._last_real_loss = loss_real.item()
 
-            # 3. Jacobian 预测（有梯度，用于回传）
-            #    梯度近似: dL/dσ ≈ (2/N) · J^T · error
-            #    实现方式: loss_grad = mean(V_jac * error_detached)
-            #    因为 d(loss_grad)/dσ = (1/N) · J^T · error
+            # 3. Jacobian 预测 + 双目标损失（始终为正，梯度正确）
+            #    loss_main: 让 V_jac 匹配 V_measured（原始目标）
+            #    loss_aux:  让 V_jac 匹配 V_full（保持 Jacobian 有效）
+            #    当 V_jac ≈ V_full 时，梯度 ≈ dMSE(F(σ), V_meas)/dσ
             if self.jacobian is not None:
                 V_jac = self._jacobian_forward(sigma_pred, sigma_ref)  # 可微分
-                loss_grad = (V_jac * error.detach()).mean()
-                # 辅助: 让 V_jac 逼近 V_full（保持 Jacobian 近似有效）
+                loss_main = F.mse_loss(V_jac, voltages_measured)
                 loss_aux = F.mse_loss(V_jac, V_full.detach())
-                total_loss = loss_grad + 0.1 * loss_aux
+                total_loss = loss_main + 0.1 * loss_aux
             else:
                 total_loss = loss_real  # 无梯度，仅监控
-
-            # 保存真实损失供日志使用
-            self._last_real_loss = loss_real.item()
 
         elif self.mode == 'hybrid' and self.forward_solver is not None:
             # 混合模式：每步都用 Jacobian，定期用 FEM 校正
