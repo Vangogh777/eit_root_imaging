@@ -266,6 +266,7 @@ class UnsupervisedTrainer:
         total_loss = 0.0
         metrics_sum = defaultdict(float)
         n_batches = len(train_loader)
+        log_interval = self.cfg.get('logging', {}).get('log_interval', 20)
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}", leave=False)
         for batch_idx, batch in enumerate(pbar):

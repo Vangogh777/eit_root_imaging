@@ -144,11 +144,11 @@ class TVRegularizationLoss(nn.Module):
         if centers.shape[1] > 2:
             centers = centers[:, :2]
 
-        # 使用 KNN 找相邻单元（比 Delaunay 更鲁棒）
-        from sklearn.neighbors import NearestNeighbors
-        nn = NearestNeighbors(n_neighbors=min(8, n_elems), algorithm='kd_tree')
-        nn.fit(centers)
-        distances, indices = nn.kneighbors(centers)  # (n_elems, k)
+        # 使用 KDTree 找相邻单元（scipy 已安装，不需额外依赖）
+        from scipy.spatial import cKDTree
+        tree = cKDTree(centers)
+        k = min(8, n_elems)
+        distances, indices = tree.query(centers, k=k)  # (n_elems, k)
 
         # 构建边列表（每个单元与最近的 k-1 个邻居的边）
         edges = set()

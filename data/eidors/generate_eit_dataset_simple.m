@@ -12,9 +12,20 @@
 
 clear; close all; clc;
 
-%% 添加EIDORS路径 (根据你的安装位置修改)
-addpath('/path/to/eidors');  % <<<< 修改为你的EIDORS安装路径 >>>>
-eidors_on;
+%% 添加EIDORS路径
+eidors_path = 'D:\eidors-v3.11ceshi\eidors-v3.11\eidors';
+addpath(eidors_path);
+
+% 初始化EIDORS（如果eidors_on存在则调用，否则跳过）
+if exist('eidors_on', 'file')
+    eidors_on;
+else
+    fprintf('注意: eidors_on 函数不存在，但已添加路径，继续运行...\n');
+end
+
+% 设置工作目录
+project_path = 'D:\EITProject';
+cd(project_path);
 
 %% ==================== 配置参数 ====================
 config = struct();
@@ -31,7 +42,7 @@ config.sigma_inclusion = 0.05;  % 包含物(根系)电导率 S/m
 config.n_samples = 10000;       % 样本数量
 
 % 输出路径
-config.output_path = './eit_eidors_dataset.mat';
+config.output_path = 'D:\EITProject\eit_eidors_dataset.mat';
 
 %% ==================== 创建EIDORS正向模型 ====================
 fprintf('====================================\n');
@@ -191,7 +202,7 @@ for k = 1:3
     % 电导率分布
     subplot(2, 3, k);
     patch('Faces', elements, 'Vertices', nodes, ...
-          'FaceVertexCData', conductivities(idx, :), ...
+          'FaceVertexCData', conductivities(idx, :)', ...
           'FaceColor', 'interp', 'EdgeColor', 'none');
     axis equal; axis off;
     colorbar;
@@ -217,8 +228,8 @@ for k = 1:3
 end
 
 % 保存图像
-saveas(gcf, 'eidors_samples_visualization.png');
-fprintf('可视化已保存到: eidors_samples_visualization.png\n');
+saveas(gcf, 'D:\EITProject\eidors_samples_visualization.png');
+fprintf('可视化已保存到: D:\EITProject\eidors_samples_visualization.png\n');
 
 fprintf('\n====================================\n');
 fprintf('全部完成！\n');
