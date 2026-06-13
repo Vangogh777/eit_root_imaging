@@ -135,9 +135,7 @@ class EITForwardSolver:
         返回:
             voltage: (n_measurements,) 边界差分电压
         """
-        # solve_eit 返回绝对电压
         v = self._forward_op.solve_eit(sigma)
-        # 差分电压：相对于均匀场
         v_diff = v - self.V_uniform
         return v_diff
 
