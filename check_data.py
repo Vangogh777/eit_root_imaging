@@ -6,6 +6,14 @@
 
 import numpy as np
 from sklearn.linear_model import LinearRegression
+import sys
+import os
+
+# 添加路径
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from data.eit_forward import EITForwardSolver
+from models.universal_eit import UniversalPhantomGenerator
 
 def main():
     print("=" * 50)
@@ -43,7 +51,7 @@ def main():
     print(f"    线性回归 RE: {re.mean():.4f} ± {re.std():.4f}")
 
     if re.mean() > 0.5:
-        print("    [INFO] 线性回归 RE > 0.5，说明问题本身较难")
+        print("    [WARN] 线性回归 RE > 0.5，说明问题本身较难")
     elif re.mean() > 0.3:
         print("    [INFO] 线性回归 RE ≈ 0.3，深度网络应该能降到 < 0.1")
     else:
@@ -53,6 +61,39 @@ def main():
     print("\n[4] 电压-电导率相关性:")
     corr_matrix = np.corrcoef(v[:100, 0], s[:100, 0])[0, 1]
     print(f"    第一通道相关性: {corr_matrix:.4f}")
+
+    if abs(corr_matrix) < 0.1:
+        print("    [WARN] 相关性太低，可能正向求解有问题!")
+
+    # 测试正向求解器
+    print("\n[5] 测试正向求解器:")
+    try:
+        solver = EITForwardSolver("config/mesh_config.yaml")
+        phantom_gen = UniversalPhantomGenerator(
+            solver.mesh.node,
+            solver.mesh.element,
+            domain_radius=0.1,
+            sigma_background=0.01,
+            sigma_inclusion=0.05
+        )
+
+        # 测试几个样本
+        nan_count = 0
+        valid_count = 0
+        for i in range(10):
+            sigma = phantom_gen.generate_single_circle(seed=i)
+            V = solver.solve_multi_frequency(sigma)
+            if np.isnan(V).any():
+                nan_count += 1
+            else:
+                valid_count += 1
+
+        print(f"    测试10个样本: {valid_count} 有效, {nan_count} NaN")
+        if nan_count > 0:
+            print("    [WARN] 正向求解器返回NaN，数据可能无效!")
+
+    except Exception as e:
+        print(f"    [ERROR] 正向求解器测试失败: {e}")
 
     print("\n" + "=" * 50)
     print("检查完成")
