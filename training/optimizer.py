@@ -20,8 +20,8 @@ def build_optimizer(model: nn.Module, config: dict) -> Optimizer:
     返回:
         optimizer
     """
-    lr = config['training']['learning_rate']
-    weight_decay = config['training']['weight_decay']
+    lr = float(config['training']['learning_rate'])
+    weight_decay = float(config['training']['weight_decay'])
 
     # 不同层组用不同学习率（可选）
     # 编码器层用较低学习率，解码器较高
