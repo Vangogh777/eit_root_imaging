@@ -96,7 +96,7 @@ class MeasurementConsistencyLoss(nn.Module):
             V_full_list = []
             for b in range(B):
                 V_b = self.forward_solver(sigma_np[b])  # (n_freq, n_meas)
-                V_full_list.append(V_b)
+                V_full_list.append(V_b.astype(np.float32))
             V_full = torch.from_numpy(np.stack(V_full_list)).to(device)
 
             # 2. 真实误差（用于监控和梯度方向）
