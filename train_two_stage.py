@@ -99,8 +99,8 @@ def main():
 
     # ============ 2. 创建传统反演器 ============
     print("\n[2/6] 创建传统反演器...")
-    reconstructor = TraditionalReconstructor(solver, method='jac')
-    print("  使用 Gauss-Newton (JAC) 反演")
+    reconstructor = TraditionalReconstructor(solver, method='bp')  # BP 不需要求逆
+    print(f"  使用 {reconstructor.method.upper()} 反演")
 
     # ============ 3. 生成/加载数据 ============
     print("\n[3/6] 准备数据集...")

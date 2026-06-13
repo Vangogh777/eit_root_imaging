@@ -23,7 +23,7 @@ class TraditionalReconstructor:
     封装 pyEIT 的 BP/JAC 算法
     """
 
-    def __init__(self, solver, method: str = 'jac'):
+    def __init__(self, solver, method: str = 'bp'):
         """
         参数:
             solver: EITForwardSolver 实例
@@ -39,8 +39,15 @@ class TraditionalReconstructor:
             self.eit = bp.BP(mesh=self.mesh, protocol=self.protocol)
             self.eit.setup()
         elif method == 'jac':
+            # JAC 需要计算 Jacobian，可能会遇到奇异矩阵问题
             self.eit = jac.JAC(mesh=self.mesh, protocol=self.protocol)
-            self.eit.setup(p=0.5, lamb=0.01, method='kotre')
+            try:
+                self.eit.setup(p=0.5, lamb=0.01, method='kotre')
+            except np.linalg.LinAlgError:
+                print("  [WARN] JAC 初始化失败（奇异矩阵），回退到 BP")
+                self.method = 'bp'
+                self.eit = bp.BP(mesh=self.mesh, protocol=self.protocol)
+                self.eit.setup()
         else:
             raise ValueError(f"不支持的方法: {method}")
 
