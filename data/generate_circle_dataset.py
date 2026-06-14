@@ -127,6 +127,7 @@ def generate_dataset(config_path="config/mesh_config.yaml",
             grp.create_dataset('voltages', data=voltages, compression='gzip')
             grp.create_dataset('sigmas', data=sigmas, compression='gzip')
             grp.create_dataset('masks', data=masks, compression='gzip')
+            grp.create_dataset('noise_db', data=np.zeros(len(sigmas), dtype=np.float32))
 
         meta = f.create_group('metadata')
         meta.create_dataset('mesh_nodes', data=solver.mesh.node)
