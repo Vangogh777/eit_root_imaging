@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conv-Spatial EIT — 高精度通用EIT算法架构</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#c8c8d0;font-family:'Inter',-apple-system,'Segoe UI',sans-serif;line-height:1.7}
+.container{max-width:1100px;margin:0 auto;padding:40px 24px}
+.hero{text-align:center;padding:80px 0 60px}
+.hero h1{font-size:42px;font-weight:700;background:linear-gradient(135deg,#6ee7b7,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.5px}
+.hero .sub{color:#6b7280;font-size:18px;margin-top:12px;border-top:1px solid #1f2937;padding-top:16px;display:inline-block}
+.section{margin:60px 0}
+.section h2{font-size:26px;font-weight:600;color:#e4e4ec;margin-bottom:20px;padding-left:14px;border-left:3px solid #6ee7b7}
+.section h3{font-size:18px;font-weight:600;color:#c8c8d0;margin:28px 0 12px}
+.card{background:#12121a;border:1px solid #1f2937;border-radius:12px;padding:28px;margin:20px 0}
+.card-title{font-size:16px;font-weight:600;color:#6ee7b7;margin-bottom:12px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.flow{display:flex;flex-direction:column;align-items:center;gap:6px;margin:30px 0}
+.flow-box{background:#1a1a28;border:1px solid #2a2a3a;border-radius:10px;padding:16px 28px;text-align:center;min-width:200px}
+.flow-box .label{font-size:13px;color:#8b8b9e}
+.flow-box .val{font-size:14px;color:#e4e4ec;font-family:'JetBrains Mono',monospace;margin-top:4px}
+.flow-box.highlight{border-color:#6ee7b7;background:#1a2a22}
+.flow-arrow{color:#4b5563;font-size:20px}
+table{width:100%;border-collapse:collapse;margin:16px 0}
+th{text-align:left;padding:10px 14px;background:#1a1a28;color:#9ca3af;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #2a2a3a}
+td{padding:10px 14px;border-bottom:1px solid #1f2937;font-size:14px}
+.tag{display:inline-block;padding:2px 10px;border-radius:4px;font-size:12px;font-weight:500}
+.tag-blue{background:#1e3a5f;color:#60a5fa}
+.tag-green{background:#1a3a2a;color:#34d399}
+.tag-purple{background:#2a1a3a;color:#a78bfa}
+ul,ol{padding-left:20px;margin:10px 0}
+li{margin:6px 0;color:#a0a0b0}
+.highlight-text{color:#6ee7b7;font-weight:500}
+.img-container{text-align:center;margin:24px 0}
+.img-container img{max-width:100%;border-radius:10px;border:1px solid #1f2937}
+.img-container .caption{color:#6b7280;font-size:13px;margin-top:8px}
+.divider{border:none;height:1px;background:linear-gradient(90deg,transparent,#1f2937,transparent);margin:40px 0}
+.footer{text-align:center;padding:40px 0;color:#4b5563;font-size:13px;border-top:1px solid #1f2937;margin-top:40px}
+@media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr}.hero h1{font-size:28px}}
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="hero">
+<h1>Conv-Spatial EIT</h1>
+<div class="sub">高精度通用 EIT 重建算法 &nbsp;·&nbsp; Conv2D + Grid Sampling + GNN</div>
+</div>
+<hr class="divider">
+
+<div class="section">
+<h2>问题定义</h2>
+<div class="grid-2">
+<div class="card">
+<div class="card-title">正问题 <span style="color:#6b7280;font-weight:400;font-size:13px;">(Forward)</span></div>
+<p>给定电导率分布 σ，求边界电压 V：</p>
+<p style="font-family:'JetBrains Mono',monospace;font-size:18px;text-align:center;margin:16px 0;color:#e4e4ec;">V = F(σ)</p>
+<p style="color:#a0a0b0;font-size:14px;">FEM 有限元求解，<span class="highlight-text">唯一解</span>，物理精确。</p>
+</div>
+<div class="card">
+<div class="card-title">反问题 <span style="color:#6b7280;font-weight:400;font-size:13px;">(Inverse)</span></div>
+<p>给定边界电压 V，求电导率分布 σ：</p>
+<p style="font-family:'JetBrains Mono',monospace;font-size:18px;text-align:center;margin:16px 0;color:#e4e4ec;">σ = F⁻¹(V)</p>
+<p style="color:#a0a0b0;font-size:14px;"><span class="highlight-text">不适定</span>，多解。208 个测量 vs 4424 个未知数。</p>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h2>网络架构总览</h2>
+<div class="flow">
+<div class="flow-box highlight"><div class="label">输入</div><div class="val">Voltages (B, 6, 13, 16)</div></div>
+<div class="flow-arrow">▼</div>
+<div class="flow-box"><div class="label">Stage 1 · Conv2D Encoder</div><div class="val">6→32→64→128 ch · (B, 128, 8, 8)</div></div>
+<div class="flow-arrow">▼</div>
+<div class="flow-box"><div class="label">Stage 2 · Grid Sampling</div><div class="val">坐标插值 · (B, 4424, 128)</div></div>
+<div class="flow-arrow">▼</div>
+<div class="flow-box"><div class="label">Stage 3 · GNN × 4 层</div><div class="val">消息传递 · (B, 4424, 256)</div></div>
+<div class="flow-arrow">▼</div>
+<div class="flow-box highlight"><div class="label">输出</div><div class="val">Conductivity σ (B, 4424)</div></div>
+</div>
+
+<div class="grid-3">
+<div class="card">
+<div class="card-title">输入</div>
+<table><tr><td>形状</td><td style="font-family:monospace;">(B, 6, 13, 16)</td></tr>
+<tr><td>6</td><td>频率通道</td></tr>
+<tr><td>13×16</td><td>激励 × 测量矩阵</td></tr>
+<tr><td>范围</td><td>差分电压 ±5V</td></tr></table>
+</div>
+<div class="card">
+<div class="card-title">中间表示</div>
+<table><tr><td>Conv 特征</td><td style="font-family:monospace;">(B, 128, 8, 8)</td></tr>
+<tr><td>采样特征</td><td style="font-family:monospace;">(B, 4424, 128)</td></tr>
+<tr><td>GNN 特征</td><td style="font-family:monospace;">(B, 4424, 256)</td></tr></table>
+</div>
+<div class="card">
+<div class="card-title">输出</div>
+<table><tr><td>形状</td><td style="font-family:monospace;">(B, 4424)</td></tr>
+<tr><td>物理量</td><td>电导率 σ</td></tr>
+<tr><td>单位</td><td>S/m</td></tr>
+<tr><td>范围</td><td>0.005 ~ 0.1</td></tr></table>
+</div>
+</div>
+</div>
+
+<hr class="divider">
+
+<div class="section">
+<h2>Stage 1 · Conv2D Encoder</h2>
+<div class="card">
+<p>将 13×16 的测量矩阵视为"图像"，用卷积提取空间模式。<span class="highlight-text">6 个频率 = 6 个通道</span>，类似 RGB。</p>
+<div class="grid-2" style="margin-top:16px;">
+<div>
+<table><tr><th>层</th><th>输出</th><th>说明</th></tr>
+<tr><td>Conv2D 7×7, s=2</td><td style="font-family:monospace;">32×32×32</td><td>Stem</td></tr>
+<tr><td>ResBlk × 2</td><td style="font-family:monospace;">32×32×32</td><td>Stage 1</td></tr>
+<tr><td>ResBlk × 2, s=2</td><td style="font-family:monospace;">64×16×16</td><td>Stage 2</td></tr>
+<tr><td>ResBlk × 2, s=2</td><td style="font-family:monospace;">128×8×8</td><td>Stage 3</td></tr></table>
+</div>
+<div style="color:#a0a0b0;font-size:14px;">
+<p>设计理由：</p>
+<ul>
+<li>相邻电极的测量值存在空间相关性</li>
+<li>2D Conv 的局部连接偏置天然匹配</li>
+<li>多频率在通道维度自动融合</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h2>Stage 2 · Grid Sampling</h2>
+<div class="card">
+<p><span class="highlight-text">核心创新</span>：用双线性插值将规则特征图映射到不规则三角网格。</p>
+<div class="grid-2">
+<div>
+<p style="color:#e4e4ec;font-weight:500;">操作流程：</p>
+<ol>
+<li>Conv 输出: <span style="font-family:monospace;">(B, 128, 8, 8)</span></li>
+<li>网格节点坐标: <span style="font-family:monospace;">(4424, 2)</span></li>
+<li>归一化到 <span style="font-family:monospace;">[-1, 1]</span></li>
+<li>torch.grid_sample 双线性插值</li>
+<li>输出: <span style="font-family:monospace;">(B, 4424, 128)</span></li>
+</ol>
+</div>
+<div style="color:#a0a0b0;font-size:14px;background:#0f0f18;padding:16px;border-radius:8px;">
+<p style="color:#e4e4ec;font-weight:500;">为什么这样做？</p>
+<ul>
+<li>Conv 在规则网格上高效</li>
+<li>EIT 输出空间是不规则三角网格</li>
+<li>Grid Sampling 桥接两个空间</li>
+<li>梯度可回传到 Conv 特征图</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h2>Stage 3 · Graph Neural Network</h2>
+<div class="card">
+<p>GNN 在网格拓扑上做<span class="highlight-text">消息传递</span>，相邻单元特征互相融合。</p>
+<div class="grid-2">
+<div>
+<table><tr><th>参数</th><th>值</th></tr>
+<tr><td>层数</td><td>4</td></tr>
+<tr><td>隐藏维度</td><td>256</td></tr>
+<tr><td>注意力头</td><td>4 (GAT)</td></tr>
+<tr><td>邻接</td><td>KDTree k=8</td></tr></table>
+</div>
+<div style="color:#a0a0b0;font-size:14px;">
+<p style="color:#e4e4ec;font-weight:500;">消息传递过程：</p>
+<ul>
+<li>节点 = 三角单元</li>
+<li>边 = 共享边的单元对</li>
+<li>第 1 层: 直接邻居</li>
+<li>第 4 层: 覆盖整个域</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h2>输出头</h2>
+<div class="card">
+<div class="grid-2">
+<div>
+<table><tr><th>层</th><th>输出</th></tr>
+<tr><td>GNN 输出</td><td style="font-family:monospace;">(B, 4424, 256)</td></tr>
+<tr><td>Linear(256→1)</td><td style="font-family:monospace;">(B, 4424, 1)</td></tr>
+<tr><td>Squeeze</td><td style="font-family:monospace;">(B, 4424)</td></tr>
+<tr><td>Sigmoid+Scale</td><td>[0.005, 0.1] S/m</td></tr></table>
+</div>
+<div style="color:#a0a0b0;font-size:14px;">
+<p>逐单元独立预测电导率，Sigmoid 缩放到物理范围。</p>
+</div>
+</div>
+</div>
+</div>
+
+<hr class="divider">
+
+<div class="section">
+<h2>测试数据</h2>
+<div class="card">
+<p>10 组单圆样本，2.5mm 高分辨率网格（11466 单元）。背景 0.01 S/m，内含物 0.05 S/m。</p>
+<div style="background:#0f0f18;padding:16px;border-radius:8px;margin:12px 0;">
+<table>
+<tr><th>样本</th><th>圆心 x</th><th>圆心 y</th><th>半径</th><th>占比</th></tr>
+<tr><td>00</td><td>0.054</td><td>-0.017</td><td>0.017m</td><td>3.1%</td></tr>
+<tr><td>01</td><td>-0.011</td><td>0.022</td><td>0.021m</td><td>4.3%</td></tr>
+<tr><td>02</td><td>0.000</td><td>0.041</td><td>0.016m</td><td>2.6%</td></tr>
+<tr><td>03</td><td>-0.061</td><td>-0.003</td><td>0.024m</td><td>5.5%</td></tr>
+<tr><td>04</td><td>0.014</td><td>-0.027</td><td>0.023m</td><td>5.4%</td></tr>
+<tr><td>05</td><td>0.013</td><td>0.022</td><td>0.028m</td><td>7.9%</td></tr>
+<tr><td>06</td><td>0.023</td><td>0.036</td><td>0.016m</td><td>2.5%</td></tr>
+<tr><td>07</td><td>-0.028</td><td>-0.042</td><td>0.016m</td><td>2.5%</td></tr>
+<tr><td>08</td><td>0.010</td><td>0.039</td><td>0.018m</td><td>3.2%</td></tr>
+<tr><td>09</td><td>-0.056</td><td>-0.026</td><td>0.026m</td><td>6.7%</td></tr>
+</table>
+</div>
+<div class="img-container">
+<img src="../data/20260614TestData/sample_00_overview.png" alt="Test Data">
+<div class="caption">样本 00 — 单圆，11466 单元网格</div>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h2>预期性能</h2>
+<div class="grid-3">
+<div class="card" style="text-align:center;">
+<div style="font-size:36px;font-weight:700;color:#6ee7b7;">&lt; 0.05</div>
+<div style="color:#6b7280;font-size:13px;margin-top:4px;">相对误差 RE</div>
+</div>
+<div class="card" style="text-align:center;">
+<div style="font-size:36px;font-weight:700;color:#60a5fa;">&gt; 0.99</div>
+<div style="color:#6b7280;font-size:13px;margin-top:4px;">相关系数 CC</div>
+</div>
+<div class="card" style="text-align:center;">
+<div style="font-size:36px;font-weight:700;color:#a78bfa;">~15M</div>
+<div style="color:#6b7280;font-size:13px;margin-top:4px;">参数量</div>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h2>方案对比</h2>
+<div class="card">
+<table>
+<tr><th>维度</th><th>EPNet</th><th>SFSBLC</th><th>EITModelGNN</th><th style="color:#6ee7b7;">Conv-Spatial</th></tr>
+<tr><td>测量空间</td><td>FC 映射</td><td>1D Conv</td><td>FC 展平</td><td style="color:#6ee7b7;">2D Conv</td></tr>
+<tr><td>多频融合</td><td>单频</td><td>注意力</td><td>展平</td><td style="color:#6ee7b7;">通道维</td></tr>
+<tr><td>网格拓扑</td><td>无</td><td>无</td><td>GNN</td><td style="color:#6ee7b7;">GNN</td></tr>
+<tr><td>坐标映射</td><td>无</td><td>无</td><td>无</td><td style="color:#6ee7b7;">Grid Sampling</td></tr>
+<tr><td>参数量</td><td>~50M</td><td>~42M</td><td>~21M</td><td style="color:#6ee7b7;">~15M</td></tr>
+</table>
+</div>
+</div>
+
+<div class="section">
+<h2>实施计划</h2>
+<div class="card">
+<ol>
+<li><strong>新建</strong> <span style="font-family:monospace;">models/conv_spatial_eit.py</span> — Conv Encoder + Grid Sampling + GNN + Output Head</li>
+<li><strong>复用</strong> GNN 层 → <span style="font-family:monospace;">models/physics_gnn.py</span></li>
+<li><strong>集成</strong> 无监督训练 → <span style="font-family:monospace;">UnsupervisedTrainer</span></li>
+<li><strong>有监督预训练</strong> → MSE 快速收敛，再切无监督精调</li>
+</ol>
+</div>
+</div>
+
+<div class="footer">Conv-Spatial EIT &nbsp;·&nbsp; 2026</div>
+
+</div>
+</body>
+</html>
