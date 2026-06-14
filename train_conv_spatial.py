@@ -58,7 +58,10 @@ def train():
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"设备: {device}")
+    if device.type == 'cuda':
+        print(f"设备: {torch.cuda.get_device_name(0)}  ({torch.cuda.get_device_properties(0).total_memory/1e9:.1f} GB)")
+    else:
+        print(f"设备: CPU")
 
     # ============ 1. 数据 ============
     centers, elements, n_elems, solver = get_mesh_data(args.mesh_config)
