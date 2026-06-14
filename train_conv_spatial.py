@@ -158,6 +158,7 @@ def train():
 
             if re < best_re:
                 best_re = re
+                os.makedirs("checkpoints", exist_ok=True)
                 torch.save(model.state_dict(), "checkpoints/conv_spatial_best.pt")
                 print(f"  → 保存最佳模型 (RE={best_re:.4f})")
 
@@ -232,6 +233,7 @@ def train():
             print(f"  Unsup Epoch {epoch:2d} | Loss: {epoch_loss/len(train_loader):.4f}")
 
     # ============ 5. 保存最终模型 ============
+    os.makedirs("checkpoints", exist_ok=True)
     save_path = "checkpoints/conv_spatial_final.pt"
     torch.save({
         'model': model.state_dict(),
