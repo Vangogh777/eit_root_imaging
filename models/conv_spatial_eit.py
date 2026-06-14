@@ -169,21 +169,21 @@ class SimpleGNNLayer(nn.Module):
         n_edges = edge_idx.shape[1]
         device = x.device
 
-        # 稀疏消息传递: 对每条边 (src→dst), x_agg[dst] += w * x[src]
         src, dst = edge_idx  # (n_edges,), (n_edges,)
+        w = edge_weight  # (n_edges,)
 
-        # x_src: (B, n_edges, D)
-        x_src = x.index_select(1, src)
-        w = edge_weight.view(1, n_edges, 1)  # (1, n_edges, 1)
-
-        # 聚合: scatter_add
+        # 逐样本消息传递（避免一次性 gather 所有边，节省显存）
         x_agg = torch.zeros(B, N, D, device=device)
-        x_agg = x_agg.scatter_add(1,
-                                  dst.view(1, n_edges, 1).expand(B, n_edges, D),
-                                  x_src * w)
+        for b in range(B):
+            x_src = x[b, src]  # (n_edges, D) — 只 gather 一个样本的边
+            x_agg[b] = x_agg[b].scatter_add(
+                0,
+                dst.unsqueeze(1).expand(n_edges, D),
+                x_src * w.unsqueeze(1)
+            )
 
         # 拼接自身 + 聚合邻居
-        h = torch.cat([x, x_agg], dim=-1)  # (B, N, 2D)
+        h = torch.cat([x, x_agg], dim=-1)
         # MLP 更新
         h = self.mlp(h.view(B * N, -1)).view(B, N, -1)
         return h
@@ -205,6 +205,7 @@ class ConvSpatialEIT(nn.Module):
                  n_elems: int = 11466,
                  hidden_dim: int = 256,
                  gnn_layers: int = 4,
+                 gnn_hidden: int = 128,
                  dropout: float = 0.1,
                  sigma_min: float = 0.005,
                  sigma_max: float = 0.1):
@@ -222,7 +223,6 @@ class ConvSpatialEIT(nn.Module):
 
         # 3. GNN layers
         gnn_in_dim = 128  # ConvEncoder 输出通道
-        gnn_hidden = 256  # GNN 隐藏维
         self.gnn_blocks = nn.ModuleList([
             SimpleGNNLayer(gnn_in_dim if i == 0 else gnn_hidden, gnn_hidden, dropout)
             for i in range(gnn_layers)
