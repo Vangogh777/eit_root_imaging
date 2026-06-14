@@ -59,7 +59,11 @@ def main():
     # ========== 2. 加载数据 ==========
     print(f"加载数据 ({args.split})...")
     ds = EITDataset(args.data, split=args.split, voltage_mask_ratio=0.0)
-    loader = DataLoader(ds, batch_size=64, shuffle=False)
+    free_mem = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)
+    safe_batch = max(4, min(64, int(free_mem / (11466 * 256 * 4 * 2))))
+    batch_size = min(64, safe_batch)
+    print(f"  显存: {free_mem/1e9:.1f}GB 空闲, 使用 batch_size={batch_size}")
+    loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
     print(f"  共 {len(ds)} 个样本")
 
     # ========== 3. 推理 ==========
