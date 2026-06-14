@@ -80,7 +80,7 @@ def train():
     print(f"训练: {len(train_ds)}, 验证: {len(val_ds)}")
 
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                              num_workers=4, pin_memory=True)
+                              num_workers=8, pin_memory=True, persistent_workers=True)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size * 2,
                             shuffle=False, num_workers=4, pin_memory=True)
 
@@ -113,6 +113,7 @@ def train():
 
         criterion = nn.MSELoss()
         best_re = float('inf')
+        scaler = torch.amp.GradScaler()
 
         for epoch in range(1, args.epochs_sup + 1):
             model.train()
@@ -120,17 +121,18 @@ def train():
             for batch in tqdm(train_loader, desc=f"Sup Epoch {epoch}"):
                 V = batch['voltages'].to(device)  # (B, 6, 208)
                 S = batch['sigmas'].to(device)     # (B, n_elems)
-
-                # Reshape V to (B, 6, 13, 16)
                 B = V.shape[0]
                 V_img = V.view(B, 6, 13, 16)
 
                 optimizer.zero_grad()
-                out = model(V_img)
-                loss = criterion(out['sigma'], S)
-                loss.backward()
+                with torch.amp.autocast('cuda'):
+                    out = model(V_img)
+                    loss = criterion(out['sigma'], S)
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
                 nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
                 epoch_loss += loss.item()
 
             scheduler.step()
