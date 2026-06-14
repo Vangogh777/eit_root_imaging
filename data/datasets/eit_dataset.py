@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 
 class EITDataset(Dataset):
+    """EIT 数据集（按需从 HDF5 读取，内存高效）"""
     """
     EIT 数据集
 
@@ -107,6 +108,68 @@ class EITDataset(Dataset):
         # 缓存（限制缓存大小）
         if len(self._cache) < 1000:
             self._cache[idx] = sample
+
+        return sample
+
+
+class MemoryEITDataset(Dataset):
+    """
+    EIT 数据集（全部加载到内存，GPU 训练专用）
+    解决 HDF5 按需读取导致的 GPU 空闲问题。
+
+    用法:
+        dataset = MemoryEITDataset("circle_dataset.h5", split="train")
+        loader = DataLoader(dataset, batch_size=128, num_workers=0)  # workers=0！
+    """
+
+    def __init__(self, h5_path: str, split: str = "train",
+                 load_sigmas: bool = True, load_masks: bool = True,
+                 voltage_mask_ratio: float = 0.0):
+        self.split = split
+        self.load_sigmas = load_sigmas
+        self.load_masks = load_masks
+        self.voltage_mask_ratio = voltage_mask_ratio
+
+        # 一次性全部加载到内存
+        import time
+        t0 = time.time()
+        with h5py.File(h5_path, 'r') as f:
+            grp = f[split]
+            self.voltages = grp['voltages'][:]   # (N, F, M)
+            self.sigmas = grp['sigmas'][:]        # (N, E)
+            self.masks = grp['masks'][:] if 'masks' in grp else None
+
+            meta = f['metadata']
+            self.mesh_nodes = meta['mesh_nodes'][:]
+            self.mesh_elements = meta['mesh_elements'][:]
+            self.frequencies = meta['frequencies'][:]
+
+        self.n_samples = self.voltages.shape[0]
+        self.n_freq = self.voltages.shape[1]
+        self.n_meas = self.voltages.shape[2]
+        self.n_elems = self.sigmas.shape[1]
+        t = time.time() - t0
+        print(f"  [MemoryEITDataset] {split}: {self.n_samples} 样本, "
+              f"加载用时 {t:.1f}s")
+
+    def __len__(self):
+        return self.n_samples
+
+    def __getitem__(self, idx):
+        V = torch.from_numpy(self.voltages[idx]).float()
+        sigma = torch.from_numpy(self.sigmas[idx]).float()
+        sample = {'voltages': V, 'sigmas': sigma, 'idx': idx}
+
+        if self.load_masks and self.masks is not None:
+            sample['masks'] = torch.from_numpy(self.masks[idx]).float()
+
+        # 电压掩码增强
+        if self.voltage_mask_ratio > 0 and self.split == 'train':
+            n_meas = V.shape[-1]
+            n_mask = max(1, int(n_meas * self.voltage_mask_ratio))
+            mask_idx = torch.randperm(n_meas)[:n_mask]
+            sample['voltages'] = V.clone()
+            sample['voltages'][..., mask_idx] = 0.0
 
         return sample
 
