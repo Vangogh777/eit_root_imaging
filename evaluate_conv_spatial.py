@@ -110,12 +110,25 @@ def main():
 
     # ========== 5. 画图 ==========
     n_show = min(args.n_samples, len(all_pred))
-    fig, axes = plt.subplots(n_show, 3, figsize=(10, n_show * 3))
-    fig.patch.set_facecolor('#0a0a0f')
+    # 上方留出指标区域，下方为对比图
+    fig = plt.figure(figsize=(12, 3.5 + n_show * 2.8))
+    fig.patch.set_facecolor('white')
 
-    # 按 RE 排序显示
+    # ── 5a. 指标面板 ──
+    ax_stats = fig.add_axes([0.05, 0.94, 0.9, 0.05])
+    ax_stats.axis('off')
+    stats_text = (
+        f"验证集: {len(all_pred)} 个样本  |  "
+        f"RE: mean={re_mean:.4f}  std={re_std:.4f}  min={re_min:.4f}  max={re_max:.4f}  |  "
+        f"CC: mean={cc_mean:.4f}  std={cc_std:.4f}"
+    )
+    ax_stats.text(0.5, 0.5, stats_text, fontsize=11, color='#333333',
+                  ha='center', va='center', fontweight='bold',
+                  bbox=dict(boxstyle='round,pad=0.4', facecolor='#f0f4f8',
+                            edgecolor='#c0d0e0', linewidth=1))
+
+    # ── 5b. 对比图 ──
     indices = torch.argsort(re_per_sample)
-    # 显示最好、最差和中间的
     half = n_show // 2
     show_idx = list(indices[:half]) + list(indices[-half:])
 
@@ -125,24 +138,21 @@ def main():
         err = np.abs(pred - gt)
         re_i = re_per_sample[idx].item()
 
-        titles = ['Ground Truth', 'Prediction', f'Error  RE={re_i:.4f}']
-        datas = [gt, pred, err]
-        cmaps = ['viridis', 'viridis', 'hot']
-        vmins = [0.008, 0.008, 0]
-        vmaxs = [0.052, 0.052, 0.01]
-
-        for j in range(3):
-            ax = axes[row, j] if n_show > 1 else axes[j]
-            sc = ax.scatter(centers[:,0], centers[:,1], c=datas[j],
-                          s=3, cmap=cmaps[j], vmin=vmins[j], vmax=vmaxs[j])
+        y0 = 0.88 - row * 0.30
+        for j, (data, cmap, vmin, vmax, label) in enumerate([
+            (gt, 'viridis', 0.008, 0.052, 'Ground Truth'),
+            (pred, 'viridis', 0.008, 0.052, 'Prediction'),
+            (err, 'hot', 0, 0.01, f'Error  RE={re_i:.4f}'),
+        ]):
+            ax = fig.add_axes([0.02 + j * 0.33, y0 - 0.25, 0.30, 0.25])
+            ax.scatter(centers[:,0], centers[:,1], c=data, s=2,
+                      cmap=cmap, vmin=vmin, vmax=vmax)
             ax.set_aspect('equal')
             ax.axis('off')
             if row == 0:
-                ax.set_title(titles[j], color='#6ee7b7', fontsize=12, fontweight='bold')
+                ax.set_title(label, fontsize=10, color='#222222', fontweight='bold', pad=2)
 
-    plt.tight_layout()
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    plt.savefig(args.output, dpi=150, bbox_inches='tight', facecolor='#0a0a0f')
+    plt.savefig(args.output, dpi=180, bbox_inches='tight', facecolor='white')
     print(f"对比图已保存: {args.output}")
 
 
