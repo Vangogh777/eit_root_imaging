@@ -169,18 +169,20 @@ class SimpleGNNLayer(nn.Module):
         n_edges = edge_idx.shape[1]
         device = x.device
 
-        src, dst = edge_idx  # (n_edges,), (n_edges,)
-        w = edge_weight  # (n_edges,)
+        src, dst = edge_idx  # (n_edges,)
+        w = edge_weight      # (n_edges,)
 
-        # 逐样本消息传递（避免一次性 gather 所有边，节省显存）
+        # 边分块消息传递（避免逐样本 for 循环，同时控制显存）
+        chunk_size = 20000
         x_agg = torch.zeros(B, N, D, device=device)
-        for b in range(B):
-            x_src = x[b, src]  # (n_edges, D) — 只 gather 一个样本的边
-            x_agg[b] = x_agg[b].scatter_add(
-                0,
-                dst.unsqueeze(1).expand(n_edges, D),
-                x_src * w.unsqueeze(1)
-            )
+        for start in range(0, n_edges, chunk_size):
+            end = min(start + chunk_size, n_edges)
+            s, d, ww = src[start:end], dst[start:end], w[start:end]
+            # gather 当前块的边特征 (B, chunk, D)
+            x_src = x[:, s]  # (B, chunk, D)
+            x_agg.scatter_add_(1,
+                d.view(1, -1, 1).expand(B, -1, D),
+                x_src * ww.view(1, -1, 1))
 
         # 拼接自身 + 聚合邻居
         h = torch.cat([x, x_agg], dim=-1)
