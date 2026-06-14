@@ -207,7 +207,7 @@ class ConvSpatialEIT(nn.Module):
                  n_elems: int = 11466,
                  hidden_dim: int = 256,
                  gnn_layers: int = 4,
-                 gnn_hidden: int = 128,
+                 gnn_hidden: int = 256,
                  dropout: float = 0.1,
                  sigma_min: float = 0.005,
                  sigma_max: float = 0.1):
@@ -218,7 +218,7 @@ class ConvSpatialEIT(nn.Module):
         self.sigma_max = sigma_max
 
         # 1. Conv Encoder
-        self.encoder = ConvEncoder(in_channels=n_frequencies, base_ch=32)
+        self.encoder = ConvEncoder(in_channels=n_frequencies, base_ch=48)
 
         # 2. Grid Sampler
         self.sampler = GridSampler()
@@ -232,12 +232,12 @@ class ConvSpatialEIT(nn.Module):
 
         # 4. Output head (MLP per node)
         self.output_head = nn.Sequential(
-            nn.Linear(gnn_hidden, 128),
+            nn.Linear(gnn_hidden, gnn_hidden // 2),
             nn.GELU(),
             nn.Dropout(dropout * 0.5),
-            nn.Linear(128, 64),
+            nn.Linear(gnn_hidden // 2, gnn_hidden // 4),
             nn.GELU(),
-            nn.Linear(64, 1),
+            nn.Linear(gnn_hidden // 4, 1),
         )
 
         self._edge_idx = None
