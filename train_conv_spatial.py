@@ -282,7 +282,7 @@ def train():
             wandb.init(project="conv-spatial-eit", config=vars(args))
 
         from training.loss import MeasurementConsistencyLoss, TVRegularizationLoss
-        from training.loss import SmoothnessLoss, SigmaDeviationLoss
+        from training.loss import SigmaDeviationLoss
 
         # 预计算 Jacobian（可选）
         jacobian = None
@@ -293,10 +293,11 @@ def train():
 
         # 损失函数
         mcl = MeasurementConsistencyLoss(
-            mode='jacobian' if jacobian is not None else 'full_fem',
+            mode='full_fem',
             jacobian=jacobian,
             sigma_ref_value=0.01,
             forward_solver=lambda s: solver.solve_multi_frequency(s),
+            fem_interval=5,
         )
         tvl = TVRegularizationLoss(
             element_centers=torch.from_numpy(centers).float(),
@@ -304,7 +305,6 @@ def train():
             mesh_nodes=torch.from_numpy(solver.mesh.node[:, :2]).float(),
         )
         sdl = SigmaDeviationLoss(sigma_ref_value=0.01)
-        sml = SmoothnessLoss()
 
         for epoch in range(1, args.epochs_unsup + 1):
             model.train()
@@ -320,8 +320,7 @@ def train():
                     loss_m = mcl(sp, batch['voltages'].to(device))
                     loss_t = tvl(sp)
                     loss_d = sdl(sp)
-                    loss_s = sml(sp)
-                    total = loss_m + 0.05 * loss_t + 0.1 * loss_d + 0.02 * loss_s
+                    total = loss_m + 0.05 * loss_t + 0.01 * loss_d
 
                 # 跳过异常 batch
                 if torch.isnan(total) or torch.isinf(total) or total.item() > 10.0:
