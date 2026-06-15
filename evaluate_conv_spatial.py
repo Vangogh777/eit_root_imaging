@@ -44,6 +44,9 @@ def main():
     solver = EITForwardSolver(args.mesh_config)
     centers = solver.element_centers[:, :2]
     n_elems = solver.n_elems
+    # 获取网格节点和单元连接（用于 tripcolor 平滑渲染）
+    mesh_nodes = solver.mesh.node[:, :2]  # (N_nodes, 2)
+    mesh_elements = solver.mesh.element    # (N_elems, 3)
 
     model = ConvSpatialEIT(n_elems=n_elems)
     model.setup_mesh(centers, solver.mesh.element)
@@ -118,7 +121,7 @@ def main():
     ax_stats = fig.add_axes([0.05, 0.94, 0.9, 0.05])
     ax_stats.axis('off')
     stats_text = (
-        f"验证集: {len(all_pred)} 个样本  |  "
+        f"Validation: {len(all_pred)} samples  |  "
         f"RE: mean={re_mean:.4f}  std={re_std:.4f}  min={re_min:.4f}  max={re_max:.4f}  |  "
         f"CC: mean={cc_mean:.4f}  std={cc_std:.4f}"
     )
@@ -145,8 +148,11 @@ def main():
             (err, 'hot', 0, 0.01, f'Error  RE={re_i:.4f}'),
         ]):
             ax = fig.add_axes([0.02 + j * 0.33, y0 - 0.25, 0.30, 0.25])
-            ax.scatter(centers[:,0], centers[:,1], c=data, s=2,
-                      cmap=cmap, vmin=vmin, vmax=vmax)
+            # 使用 tripcolor 填充三角形网格，消除散点噪点
+            ax.tripcolor(mesh_nodes[:,0], mesh_nodes[:,1],
+                        mesh_elements, facecolors=data,
+                        cmap=cmap, vmin=vmin, vmax=vmax,
+                        shading='flat')
             ax.set_aspect('equal')
             ax.axis('off')
             if row == 0:
