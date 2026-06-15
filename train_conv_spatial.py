@@ -55,6 +55,10 @@ def train():
     parser.add_argument("--resume", type=str, default=None, help="恢复 checkpoint")
     parser.add_argument("--workers", type=int, default=0, help="数据生成并行数")
     parser.add_argument("--wandb", action="store_true", help="启用 wandb")
+    parser.add_argument("--edge_ratio", type=float, default=0.5,
+                        help="边缘样本比例 (默认0.5=50%%)")
+    parser.add_argument("--edge_threshold", type=float, default=0.05,
+                        help="边缘判定阈值 (米, 默认0.05)")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -76,16 +80,73 @@ def train():
             config_path=args.mesh_config,
             output_dir="data/generated",
             workers=args.workers or cpu_count(),
+            edge_ratio=getattr(args, 'edge_ratio', 0.5),
+            edge_threshold=getattr(args, 'edge_threshold', 0.05),
         )
 
     train_ds = EITDataset(h5_path, split='train', voltage_mask_ratio=0.0)
     val_ds = EITDataset(h5_path, split='val', voltage_mask_ratio=0.0)
     print(f"训练: {len(train_ds)}, 验证: {len(val_ds)}")
 
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                              num_workers=8, pin_memory=True, persistent_workers=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size * 2,
-                            shuffle=False, num_workers=4, pin_memory=True)
+    # ── 分层采样器：每个 batch 一半边缘、一半中心 ──
+    class BalancedBatchSampler(torch.utils.data.Sampler):
+        """
+        确保每个 batch 中边缘样本比例 ≈ args.edge_ratio。
+        边缘判定: 样本中根区域重心距中心 > edge_threshold。
+        """
+        def __init__(self, dataset, batch_size, edge_ratio=0.5, edge_threshold=0.05):
+            self.batch_size = batch_size
+            self.edge_ratio = edge_ratio
+            self.edge_threshold = edge_threshold
+            self.n_samples = len(dataset)
+
+            # 预计算每个样本的边缘标签
+            print("  计算样本边缘标签...")
+            centers_np = centers  # (n_elems, 2)
+            self.labels = np.zeros(self.n_samples, dtype=np.int64)
+            for i in range(self.n_samples):
+                sample = dataset[i]
+                sigma = sample['sigmas'].numpy()
+                root_mask = sigma > 0.015
+                if root_mask.sum() > 0:
+                    centroid = centers_np[root_mask].mean(axis=0)
+                    dist = np.linalg.norm(centroid)
+                    self.labels[i] = 1 if dist > edge_threshold else 0
+
+            self.edge_idx = np.where(self.labels == 1)[0]
+            self.center_idx = np.where(self.labels == 0)[0]
+            print(f"  边缘: {len(self.edge_idx)}, 中心: {len(self.center_idx)}")
+
+        def __iter__(self):
+            edge_idx = self.edge_idx.copy()
+            center_idx = self.center_idx.copy()
+            np.random.shuffle(edge_idx)
+            np.random.shuffle(center_idx)
+
+            # 目标: 每个 batch 中 edge_ratio 比例的边缘样本
+            n_edge_per = max(1, int(self.batch_size * self.edge_ratio))
+            n_center_per = self.batch_size - n_edge_per
+
+            for i in range(0, max(len(edge_idx), len(center_idx)),
+                           max(n_edge_per, n_center_per)):
+                batch = np.concatenate([
+                    edge_idx[i % len(edge_idx):(i + n_edge_per) % len(edge_idx)],
+                    center_idx[i % len(center_idx):(i + n_center_per) % len(center_idx)],
+                ])
+                if len(batch) > self.batch_size:
+                    batch = batch[:self.batch_size]
+                yield batch
+
+        def __len__(self):
+            return len(self.edge_idx) // max(1, int(self.batch_size * self.edge_ratio))
+
+    sampler = BalancedBatchSampler(
+        train_ds, batch_size=args.batch_size,
+        edge_ratio=getattr(args, 'edge_ratio', 0.5),
+        edge_threshold=getattr(args, 'edge_threshold', 0.05),
+    )
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size,
+                              sampler=sampler, num_workers=8, pin_memory=True)
 
     # ============ 2. 模型 ============
     model = ConvSpatialEIT(

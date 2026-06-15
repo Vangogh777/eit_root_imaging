@@ -34,21 +34,45 @@ def _worker_init(config_path):
     _solver = EITForwardSolver(config_path)
 
 
+def _sample_position(rng):
+    """
+    采样单圆位置，支持边缘/中心平衡。
+
+    返回:
+        cx, cy, r: 圆心坐标和半径
+    """
+    while True:
+        r = rng.uniform(0.008, 0.030)          # 半径 0.8~3cm
+        max_dist = DOMAIN_RADIUS - r - 0.005
+        angle = rng.uniform(0, 2 * np.pi)
+
+        # ---- 边缘/中心平衡采样 ----
+        # 50% 概率采边缘 (dist > 0.05), 50% 采中心 (dist < 0.04)
+        if rng.random() < getattr(_generate_one, 'edge_ratio', 0.5):
+            # 边缘区
+            lo = getattr(_generate_one, 'edge_threshold', 0.05)
+            lo = min(lo, max_dist * 0.95)  # 确保 lo <= max_dist
+            dist = rng.uniform(lo, max_dist)
+        else:
+            # 中心区
+            hi = min(0.04, max_dist)
+            dist = rng.uniform(0, hi)
+
+        cx = dist * np.cos(angle)
+        cy = dist * np.sin(angle)
+        if np.sqrt(cx**2 + cy**2) + r < DOMAIN_RADIUS - 0.003:
+            break
+
+    return cx, cy, r
+
+
 def _generate_one(seed):
     """生成一个单圆样本"""
     global _solver
     rng = np.random.RandomState(seed)
 
-    # 随机圆参数
-    while True:
-        r = rng.uniform(0.008, 0.030)          # 半径 0.8~3cm
-        max_dist = DOMAIN_RADIUS - r - 0.005
-        angle = rng.uniform(0, 2 * np.pi)
-        dist = rng.uniform(0, max_dist)
-        cx = dist * np.cos(angle)
-        cy = dist * np.sin(angle)
-        if np.sqrt(cx**2 + cy**2) + r < DOMAIN_RADIUS - 0.003:
-            break
+    # 随机圆参数 (平衡采样)
+    cx, cy, r = _sample_position(rng)
 
     # 构建电导率
     centers = _solver.element_centers
@@ -78,8 +102,15 @@ def _generate_one(seed):
 def generate_dataset(config_path="config/mesh_config.yaml",
                      n_train=10000, n_val=500, n_test=200,
                      output_dir="data/generated",
-                     workers=0, seed=42):
-    """生成单圆数据集并保存为 HDF5"""
+                     workers=0, seed=42,
+                     edge_ratio=0.5, edge_threshold=0.05):
+    """
+    生成单圆数据集并保存为 HDF5
+
+    参数:
+        edge_ratio: 边缘样本比例 (0.0=全中心, 0.5=一半边缘, 1.0=全边缘)
+        edge_threshold: 边缘判定阈值 (圆心距 > 此值视为边缘, 默认 0.05m=5cm)
+    """
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -91,6 +122,12 @@ def generate_dataset(config_path="config/mesh_config.yaml",
     print(f"网格: {n_elems} 单元, 分辨率 {solver.cfg['mesh']['mesh_resolution']*1000:.1f}mm")
 
     import h5py
+
+    # 设置边缘/中心平衡采样参数
+    _generate_one.edge_ratio = edge_ratio
+    _generate_one.edge_threshold = edge_threshold
+    ratio_msg = f"{edge_ratio*100:.0f}%边缘 / {(1-edge_ratio)*100:.0f}%中心"
+    print(f"采样策略: {ratio_msg} (阈值={edge_threshold*100:.0f}cm)")
 
     def _gen_split(name, n, start_seed):
         print(f"生成 {name} 集 ({n} 样本)...")
@@ -149,6 +186,10 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="data/generated")
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--edge_ratio", type=float, default=0.5,
+                        help="边缘样本比例 (默认0.5=50%%)")
+    parser.add_argument("--edge_threshold", type=float, default=0.05,
+                        help="边缘判定阈值，圆心距大于此值视为边缘 (米, 默认0.05)")
     args = parser.parse_args()
 
     generate_dataset(
@@ -159,4 +200,6 @@ if __name__ == "__main__":
         output_dir=args.output,
         workers=args.workers,
         seed=args.seed,
+        edge_ratio=args.edge_ratio,
+        edge_threshold=args.edge_threshold,
     )
