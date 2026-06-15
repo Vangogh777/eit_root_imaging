@@ -28,6 +28,10 @@ checkpoints/
 logs/
 results/
 *.pt
+
+# IDE / Tools
+.codegraph/
+reasonix.toml
 *.pth
 *.onnx
 

@@ -46,7 +46,7 @@ def train():
     parser.add_argument("--epochs_sup", type=int, default=50, help="有监督预训练轮数")
     parser.add_argument("--epochs_unsup", type=int, default=200, help="无监督精调轮数")
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--gnn_layers", type=int, default=4)
     parser.add_argument("--mode", choices=["supervised", "unsupervised", "both"],
@@ -64,6 +64,8 @@ def train():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if device.type == 'cuda':
         print(f"设备: {torch.cuda.get_device_name(0)}  ({torch.cuda.get_device_properties(0).total_memory/1e9:.1f} GB)")
+        torch.set_float32_matmul_precision('high')
+        print("  TF32 矩阵乘法加速: 已启用")
     else:
         print(f"设备: CPU")
 
@@ -100,18 +102,28 @@ def train():
             self.edge_threshold = edge_threshold
             self.n_samples = len(dataset)
 
-            # 预计算每个样本的边缘标签
+            # 预计算每个样本的边缘标签（向量化，比逐样本循环快几百倍）
             print("  计算样本边缘标签...")
             centers_np = centers  # (n_elems, 2)
-            self.labels = np.zeros(self.n_samples, dtype=np.int64)
-            for i in range(self.n_samples):
-                sample = dataset[i]
-                sigma = sample['sigmas'].numpy()
-                root_mask = sigma > 0.015
-                if root_mask.sum() > 0:
-                    centroid = centers_np[root_mask].mean(axis=0)
-                    dist = np.linalg.norm(centroid)
-                    self.labels[i] = 1 if dist > edge_threshold else 0
+
+            # 直接从 HDF5 一次性加载所有 sigmas，避免 Dataset 逐个读取的开销
+            import h5py
+            h5_path = dataset.h5_path
+            split = dataset.split
+            with h5py.File(h5_path, 'r') as f:
+                all_sigmas = f[f'{split}/sigmas'][:]  # (n_samples, n_elems)
+
+            root_mask = all_sigmas > 0.015  # (n_samples, n_elems)
+            n_root = root_mask.sum(axis=1)  # (n_samples,)
+
+            # 向量化计算质心: 每个样本取根区域中心坐标的平均值
+            # centers_np: (n_elems, 2) -> (1, n_elems, 2)
+            # root_mask: (n_samples, n_elems) -> (n_samples, n_elems, 1)
+            # sum over elems gives (n_samples, 2)
+            centroid_x = (centers_np[:, 0] * root_mask).sum(axis=1) / np.maximum(n_root, 1)
+            centroid_y = (centers_np[:, 1] * root_mask).sum(axis=1) / np.maximum(n_root, 1)
+            dist = np.sqrt(centroid_x**2 + centroid_y**2)
+            self.labels = np.where(n_root > 0, (dist > edge_threshold).astype(np.int64), 0)
 
             self.edge_idx = np.where(self.labels == 1)[0]
             self.center_idx = np.where(self.labels == 0)[0]
@@ -145,8 +157,10 @@ def train():
         edge_ratio=getattr(args, 'edge_ratio', 0.5),
         edge_threshold=getattr(args, 'edge_threshold', 0.05),
     )
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size,
-                              sampler=sampler, num_workers=8, pin_memory=True)
+    train_loader = DataLoader(train_ds, batch_sampler=sampler,
+                              num_workers=8, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size,
+                            shuffle=False, num_workers=4, pin_memory=True)
 
     # ============ 2. 模型 ============
     model = ConvSpatialEIT(
@@ -158,8 +172,11 @@ def train():
     ).to(device)
     model.setup_mesh(centers, elements)
     print(f"参数量: {sum(p.numel() for p in model.parameters()):,}")
+    model = torch.compile(model)
+    print("  torch.compile: 已启用")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr,
+                                  weight_decay=1e-6, fused=True)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs_sup + args.epochs_unsup)
 
@@ -192,9 +209,20 @@ def train():
                 with torch.amp.autocast('cuda'):
                     out = model(V_img)
                     loss = criterion(out['sigma'], S)
+
+                # 跳过 loss 异常的 batch（防止梯度爆炸）
+                if torch.isnan(loss) or torch.isinf(loss) or loss.item() > 1.0:
+                    print(f"  ⚠ 跳过异常 batch: loss={loss.item():.4f}")
+                    continue
+
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
-                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                grad_norm = nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+
+                # 梯度爆炸预警
+                if grad_norm > 2.0:
+                    print(f"  ⚠ 大梯度: {grad_norm:.2f} | loss={loss.item():.6f}")
+
                 scaler.step(optimizer)
                 scaler.update()
                 epoch_loss += loss.item()
@@ -281,17 +309,25 @@ def train():
                 V = batch['voltages'].to(device).view(-1, 6, 13, 16)
 
                 optimizer.zero_grad()
-                out = model(V)
-                sp = out['sigma']
+                with torch.amp.autocast('cuda'):
+                    out = model(V)
+                    sp = out['sigma']
 
-                loss_m = mcl(sp, batch['voltages'].to(device))
-                loss_t = tvl(sp)
-                loss_d = sdl(sp)
-                loss_s = sml(sp)
-                total = loss_m + 0.05 * loss_t + 0.1 * loss_d + 0.02 * loss_s
+                    loss_m = mcl(sp, batch['voltages'].to(device))
+                    loss_t = tvl(sp)
+                    loss_d = sdl(sp)
+                    loss_s = sml(sp)
+                    total = loss_m + 0.05 * loss_t + 0.1 * loss_d + 0.02 * loss_s
+
+                # 跳过异常 batch
+                if torch.isnan(total) or torch.isinf(total) or total.item() > 10.0:
+                    print(f"  ⚠ 跳过异常 batch: total_loss={total.item():.4f}")
+                    continue
 
                 total.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                grad_norm = nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+                if grad_norm > 2.0:
+                    print(f"  ⚠ 大梯度: {grad_norm:.2f} | loss={total.item():.4f}")
                 optimizer.step()
                 epoch_loss += total.item()
 
