@@ -172,8 +172,8 @@ def train():
     ).to(device)
     model.setup_mesh(centers, elements)
     print(f"参数量: {sum(p.numel() for p in model.parameters()):,}")
-    model = torch.compile(model)
-    print("  torch.compile: 已启用")
+    # torch.compile 暂不兼容(位置编码buffer跨设备问题), 后续适配
+    # model = torch.compile(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr,
                                   weight_decay=1e-6, fused=True)
