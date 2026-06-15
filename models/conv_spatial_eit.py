@@ -309,7 +309,7 @@ class ConvSpatialEIT(nn.Module):
         node_feat = self.sampler(feat)  # (B, n_elems, 128)
 
         # 3. 拼接位置编码（P0-2）
-        pe = self.pos_encoding.unsqueeze(0).expand(B, -1, -1)
+        pe = self.pos_encoding.to(device).unsqueeze(0).expand(B, -1, -1)
         node_feat = torch.cat([node_feat, pe], dim=-1)  # (B, n_elems, 128+pos_dim)
 
         # 4. GNN
