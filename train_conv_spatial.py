@@ -183,7 +183,12 @@ def train():
     if args.resume:
         ckpt = torch.load(args.resume, map_location=device)
         model.load_state_dict(ckpt['model'])
-        optimizer.load_state_dict(ckpt['optimizer'])
+        if 'optimizer' in ckpt:
+            optimizer.load_state_dict(ckpt['optimizer'])
+            print(f"  恢复优化器状态")
+        if 'scheduler' in ckpt:
+            scheduler.load_state_dict(ckpt['scheduler'])
+            print(f"  恢复调度器状态")
         print(f"恢复: {args.resume}")
 
     # ============ 3. 有监督预训练 ============
@@ -267,11 +272,10 @@ def train():
         print("=" * 50)
 
         # 加载最佳有监督模型
-        if args.mode == "both":
-            ckpt_path = "checkpoints/conv_spatial_best.pt"
-            if os.path.exists(ckpt_path):
-                model.load_state_dict(torch.load(ckpt_path, map_location=device))
-                print(f"加载有监督预训练权重: {ckpt_path}")
+        ckpt_path = "checkpoints/conv_spatial_best.pt"
+        if os.path.exists(ckpt_path):
+            model.load_state_dict(torch.load(ckpt_path, map_location=device))
+            print(f"加载有监督预训练权重: {ckpt_path}")
 
         if device.type == 'cuda' and args.wandb:
             import wandb
@@ -333,6 +337,21 @@ def train():
 
             scheduler.step()
             print(f"  Unsup Epoch {epoch:2d} | Loss: {epoch_loss/len(train_loader):.4f}")
+
+            # 每 20 epoch 保存一次 checkpoint
+            if epoch % 20 == 0:
+                ckpt_path = f"checkpoints/conv_spatial_unsup_epoch{epoch}.pt"
+                torch.save({
+                    'model': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                    'epoch': epoch,
+                    'loss': epoch_loss / len(train_loader),
+                    'n_elems': n_elems,
+                    'hidden_dim': args.hidden_dim,
+                    'gnn_layers': args.gnn_layers,
+                }, ckpt_path)
+                print(f"  → 已保存: {ckpt_path}")
 
     # ============ 5. 保存最终模型 ============
     os.makedirs("checkpoints", exist_ok=True)
