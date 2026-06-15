@@ -169,8 +169,9 @@ def train():
         n_elems=n_elems,
         hidden_dim=args.hidden_dim,
         gnn_layers=args.gnn_layers,
-    ).to(device)
-    model.setup_mesh(centers, elements)
+    )
+    model.setup_mesh(centers, elements)  # 先建GNN，再移GPU
+    model = model.to(device)
     print(f"参数量: {sum(p.numel() for p in model.parameters()):,}")
     # torch.compile 暂不兼容(位置编码buffer跨设备问题), 后续适配
     # model = torch.compile(model)
