@@ -2,7 +2,7 @@
 title: "Conv-Spatial EIT：面向通用电阻抗成像的卷积-图神经网络框架"
 author: "王楠"
 institution: "浙江农林大学"
-date: "2025"
+date: "2026"
 format: |
   ---
   <div style="column-count: 2; column-gap: 24px;">
