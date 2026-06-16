@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conv-Spatial EIT：面向通用电阻抗成像的卷积-图神经网络框架</title>
+<style>
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    background: #f5f7fa;
+    font-family: 'Noto Serif CJK SC', 'Source Han Serif SC', 'STSong', 'SimSun', serif;
+    font-size: 10.5pt;
+    line-height: 1.65;
+    color: #1a1a1a;
+}
+/* ===== Paper Container ===== */
+.paper {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: #ffffff;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+    padding: 40px 0;
+}
+/* ===== Title Block ===== */
+.title-block {
+    text-align: center;
+    padding: 0 40px 25px;
+    border-bottom: 2px solid #2c3e50;
+    margin-bottom: 20px;
+}
+.title-block h1 {
+    font-family: 'Noto Sans CJK SC', 'Source Han Sans SC', 'SimHei', sans-serif;
+    font-size: 20pt;
+    font-weight: 700;
+    color: #1a1a1a;
+    line-height: 1.35;
+    margin-bottom: 8px;
+}
+.title-block .authors {
+    font-size: 12pt;
+    color: #2c3e50;
+    margin-bottom: 4px;
+}
+.title-block .affiliation {
+    font-size: 9.5pt;
+    color: #666;
+    margin-bottom: 12px;
+}
+.title-block .date {
+    font-size: 9pt;
+    color: #999;
+}
+/* ===== Abstract ===== */
+.abstract-block {
+    margin: 15px 40px 20px;
+    padding: 14px 18px;
+    background: #f8f9fc;
+    border-left: 4px solid #2c3e50;
+    border-radius: 0 4px 4px 0;
+}
+.abstract-block .label {
+    font-family: 'Noto Sans CJK SC', sans-serif;
+    font-weight: 700;
+    font-size: 10pt;
+    color: #2c3e50;
+    margin-bottom: 4px;
+}
+.abstract-block p {
+    font-size: 9.8pt;
+    text-align: justify;
+    color: #333;
+}
+/* ===== Keywords ===== */
+.keywords {
+    margin: 0 40px 20px;
+    font-size: 9.5pt;
+    color: #555;
+}
+.keywords strong { color: #2c3e50; }
+/* ===== Two Column Layout ===== */
+.main-content {
+    column-count: 2;
+    column-gap: 28px;
+    padding: 0 40px;
+}
+.main-content > * {
+    break-inside: avoid-column;
+    margin-bottom: 14px;
+}
+/* ===== Headings ===== */
+.main-content h1 {
+    font-family: 'Noto Sans CJK SC', sans-serif;
+    font-size: 13pt;
+    font-weight: 700;
+    color: #1a1a1a;
+    border-bottom: 1.5px solid #2c3e50;
+    padding-bottom: 4px;
+    margin-top: 18px;
+    margin-bottom: 10px;
+    break-after: avoid-column;
+}
+.main-content h2 {
+    font-family: 'Noto Sans CJK SC', sans-serif;
+    font-size: 11pt;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-top: 14px;
+    margin-bottom: 6px;
+    break-after: avoid-column;
+}
+.main-content h3 {
+    font-family: 'Noto Sans CJK SC', sans-serif;
+    font-size: 10pt;
+    font-weight: 600;
+    color: #34495e;
+    margin-top: 10px;
+    margin-bottom: 4px;
+}
+/* ===== Paragraphs ===== */
+.main-content p {
+    text-align: justify;
+    text-indent: 2em;
+    margin-bottom: 6px;
+}
+.main-content p.no-indent { text-indent: 0; }
+/* ===== Figures ===== */
+.figure-block {
+    margin: 10px 0 12px;
+    text-align: center;
+    break-inside: avoid;
+}
+.figure-block img {
+    max-width: 100%;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+}
+.figure-block .caption {
+    font-size: 8.8pt;
+    color: #555;
+    margin-top: 4px;
+    line-height: 1.4;
+    text-indent: 0;
+}
+/* ===== Tables ===== */
+.table-block {
+    margin: 8px 0 12px;
+    break-inside: avoid;
+}
+.table-block table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.8pt;
+}
+.table-block th {
+    background: #2c3e50;
+    color: #fff;
+    padding: 5px 7px;
+    text-align: center;
+    font-family: 'Noto Sans CJK SC', sans-serif;
+    font-weight: 600;
+}
+.table-block td {
+    padding: 4px 7px;
+    border: 1px solid #ddd;
+    text-align: center;
+}
+.table-block tr:nth-child(even) { background: #f8f9fc; }
+.table-block .caption {
+    font-size: 8.5pt;
+    color: #555;
+    margin-top: 3px;
+    text-align: center;
+    text-indent: 0;
+}
+/* ===== Equations ===== */
+.equation {
+    text-align: center;
+    margin: 8px 0;
+    padding: 4px 0;
+    font-size: 10.5pt;
+    overflow-x: auto;
+}
+.equation .eq-label {
+    float: right;
+    color: #666;
+    font-size: 9pt;
+}
+/* ===== References ===== */
+.references {
+    margin-top: 10px;
+}
+.references .ref-item {
+    font-size: 8.5pt;
+    line-height: 1.45;
+    margin-bottom: 3px;
+    padding-left: 22px;
+    text-indent: -22px;
+    word-break: break-all;
+}
+.references .ref-num {
+    color: #2c3e50;
+    font-weight: 700;
+}
+/* ===== Lists ===== */
+.main-content ul, .main-content ol {
+    margin: 4px 0 6px 20px;
+    font-size: 9.5pt;
+}
+.main-content li { margin-bottom: 2px; }
+/* ===== Code/Formula Inline ===== */
+code { font-size: 9pt; background: #f0f0f0; padding: 1px 4px; border-radius: 2px; }
+/* ===== Architecture Diagram SVG ===== */
+.arch-diagram {
+    margin: 8px auto;
+    max-width: 100%;
+    display: block;
+}
+/* ===== Span styles ===== */
+.text-bold { font-weight: 700; }
+.text-italic { font-style: italic; }
+.text-muted { color: #888; font-size: 9pt; }
+
+/* ===== Footer ===== */
+.footer-note {
+    column-span: all;
+    text-align: center;
+    padding: 15px 40px 5px;
+    border-top: 1px solid #ddd;
+    margin-top: 20px;
+    font-size: 8.5pt;
+    color: #888;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .main-content { column-count: 1; padding: 0 20px; }
+    .paper { padding: 20px 0; }
+    .title-block { padding: 0 20px 15px; }
+    .abstract-block, .keywords { margin-left: 20px; margin-right: 20px; }
+}
+</style>
+</head>
+<body>
+
+<div class="paper">
+
+<!-- ==================== TITLE ==================== -->
+<div class="title-block">
+    <h1>Conv-Spatial EIT：<br>面向通用电阻抗成像的卷积-图神经网络框架</h1>
+    <div class="authors">王楠</div>
+    <div class="affiliation">浙江农林大学，杭州 311300</div>
+    <div class="date">2025 年 6 月</div>
+</div>
+
+<!-- ==================== ABSTRACT ==================== -->
+<div class="abstract-block">
+    <div class="label">摘&emsp;要</div>
+    <p>
+    电阻抗成像（Electrical Impedance Tomography, EIT）是一种无辐射、低成本的电学成像技术，
+    在生物医学、工业检测和农业监测等领域具有广泛的应用前景。然而，EIT 图像重建本质上是一个
+    高度病态的非线性逆问题，传统方法在空间分辨率和鲁棒性之间难以取得良好平衡。本文提出
+    <strong>Conv-Spatial EIT</strong>——一种融合卷积编码与图神经网络的通用 EIT 重建框架。
+    该模型首先通过二维卷积编码器从边界电压中提取空间结构特征，然后利用网格采样层（Grid Sampler）
+    将规则特征图映射至不规则三角网格，拼接 Fourier 位置编码后送入多层图神经网络进行消息传递
+    与特征聚合，最终由输出头预测每个单元的电导率值。在训练策略上，采用两阶段范式：第一阶段
+    使用模拟数据进行有监督预训练，第二阶段引入物理约束（测量一致性损失）进行无监督精调。在
+    圆形含内含物数据集上的实验结果表明，Conv-Spatial EIT 达到了相对误差 0.149、相关系数 0.957
+    的重建精度。本文方法兼具卷积网络的高效特征提取能力与图网络的不规则网格适应能力，为通用
+    EIT 重建提供了新的技术路径。
+    </p>
+</div>
+
+<div class="keywords">
+    <strong>关键词：</strong>电阻抗成像；图神经网络；卷积神经网络；深度学习；逆问题；无监督学习
+</div>
+
+<!-- ==================== MAIN CONTENT ==================== -->
+<div class="main-content">
+
+<h1>1 引言</h1>
+
+<p>
+电阻抗成像（EIT）是一种通过向被测物体表面注入电流并测量边界电压来重建内部电导率分布的
+电学成像技术。与传统成像模态（如 CT、MRI）相比，EIT 具有无电离辐射、设备便携、时间分辨率
+高和成本低廉等显著优势，因此在肺部通气监测[1]、脑水肿检测[2]、乳腺肿瘤筛查[3]以及植物根系
+生长监测[4]等应用中受到广泛关注。
+</p>
+
+<p>
+然而，EIT 图像重建面临两大核心挑战：其一，<strong>逆问题的病态性</strong>——边界测量数量
+远少于内部电导率未知量，导致解不唯一且对测量噪声极为敏感；其二，<strong>非线性与非均匀性</strong>
+——电导率分布与边界电压之间的关系由麦克斯韦方程组描述，本质上高度非线性，且圆形或复杂形状
+域中的灵敏度分布极不均匀（中心区域灵敏度远低于边缘）。
+</p>
+
+<p>
+传统 EIT 重建方法主要包括：（1）<strong>反投影法</strong>（Back-Projection, BP），
+由 Barber 和 Brown 于 1983 年提出[5]，计算简单但空间分辨率低；（2）<strong>Gauss-Newton
+迭代法</strong>[6]，基于非线性最小二乘优化，收敛速度受初始值影响大；（3）<strong>全变差
+（TV）正则化方法</strong>[7]，能够保持边缘但易产生阶梯效应。这些方法在实时性或重建质量上
+各有局限。
+</p>
+
+<p>
+近年来，深度学习方法为 EIT 重建开辟了新的方向。Li 等[8]首次提出使用全连接网络进行 EIT
+图像重建。随后，卷积神经网络（CNN）被广泛应用于将边界电压映射为电导率图像[9,10]，但其
+本质缺陷在于输出为规则网格而非适应 EIT 的三角网格拓扑。图神经网络（GNN）因其对不规则
+网格结构的天然适配性，近年来被引入 EIT 领域[11,12]，然而纯 GNN 模型在特征提取效率
+和感受野范围上仍受限制。
+</p>
+
+<p>
+针对现有方法的不足，本文提出 <strong>Conv-Spatial EIT</strong> 模型，其核心贡献如下：
+</p>
+
+<ol>
+    <li><strong>混合架构设计</strong>：将卷积编码器的高效空间特征提取能力与图神经网络的
+    不规则网格处理能力相结合，通过 Grid Sampler 实现两者的无缝桥接。</li>
+    <li><strong>位置感知的图消息传递</strong>：在 GNN 节点特征中注入基于 Fourier 编码的
+    坐标信息和半径信息，使网络能够感知 EIT 灵敏度分布的空间不均匀性。</li>
+    <li><strong>两阶段训练策略</strong>：先进行有监督预训练以快速收敛至合理初始点，再进行
+    无监督物理约束精调以摆脱对标注数据的依赖。</li>
+    <li><strong>通用框架</strong>：模型与网格拓扑无关，可迁移至任意 EIT 硬件配置和应用场景。</li>
+</ol>
+
+<h1>2 EIT 基础理论</h1>
+
+<h2>2.1 正问题</h2>
+
+<p>
+EIT 正问题是指：已知域 $\Omega \subset \mathbb{R}^2$ 内的电导率分布 $\sigma(x,y)$ 和边界
+注入电流 $J$，求解域内的电势分布 $\phi(x,y)$。该问题由以下 Laplace 方程描述：
+</p>
+
+<div class="equation">
+    $$\nabla \cdot (\sigma \nabla \phi) = 0, \quad \text{in } \Omega$$
+</div>
+
+<p>边界条件为：</p>
+
+<div class="equation">
+    $$\sigma \frac{\partial \phi}{\partial \mathbf{n}} = J, \quad \text{on } \partial\Omega$$
+</div>
+
+<p>
+其中 $\mathbf{n}$ 为边界外法向向量。本文采用相邻激励-相邻测量模式，通过 16 个电极依次
+注入 1 mA 电流（频率范围 1 kHz–500 kHz），每次激励时从其余电极对测量边界电压。
+</p>
+
+<p>
+正问题的数值求解采用有限元法（FEM），将 $\Omega$ 离散为 $N_e$ 个三角单元和 $N_n$ 个节点，
+构建刚度矩阵 $\mathbf{K}(\sigma)$，求解线性方程组：
+</p>
+
+<div class="equation">
+    $$\mathbf{K}(\sigma) \mathbf{\Phi} = \mathbf{I}$$
+</div>
+
+<p>
+FEM 求解使用 pyEIT 框架[13]实现。对于本文采用的 10 cm 半径圆形域和最大单元边长 2.5 mm
+的网格设定，$N_e = 11466$，$N_n = 5859$。
+</p>
+
+<div class="table-block">
+<table>
+    <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 1：网格与电极参数</caption>
+    <thead>
+        <tr><th>参数</th><th>值</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>域形状</td><td>圆形（桶截面）</td></tr>
+        <tr><td>域半径</td><td>10 cm</td></tr>
+        <tr><td>最大单元边长</td><td>2.5 mm</td></tr>
+        <tr><td>单元数 $N_e$</td><td>11,466</td></tr>
+        <tr><td>节点数 $N_n$</td><td>5,859</td></tr>
+        <tr><td>电极数</td><td>16（单环）</td></tr>
+        <tr><td>激励模式</td><td>相邻激励</td></tr>
+        <tr><td>测量数 $M$</td><td>208</td></tr>
+        <tr><td>频率数</td><td>6（1k–500k Hz）</td></tr>
+        <tr><td>激励电流</td><td>1 mA</td></tr>
+    </tbody>
+</table>
+</div>
+
+<h2>2.2 逆问题与病态性</h2>
+
+<p>
+EIT 逆问题是从 $M$ 维边界电压测量 $\mathbf{V} \in \mathbb{R}^M$ 重建 $N_e$ 维电导率分布
+$\sigma \in \mathbb{R}^{N_e}$：
+</p>
+
+<div class="equation">
+    $$\hat{\sigma} = \arg\min_{\sigma} \|\mathbf{F}(\sigma) - \mathbf{V}\|^2 + \lambda \mathcal{R}(\sigma)$$
+</div>
+
+<p>
+其中 $\mathbf{F}(\cdot)$ 为正问题算子，$\mathcal{R}(\cdot)$ 为正则化项。
+由于 $M=208 \ll N_e=11466$，该逆问题是高度病态的。
+</p>
+
+<h2>2.3 灵敏度矩阵</h2>
+
+<p>
+Jacobian 矩阵 $\mathbf{J} \in \mathbb{R}^{M \times N_e}$ 描述了边界电压对单元电导率变化的灵敏度：
+</p>
+
+<div class="equation">
+    $$\mathbf{J}_{ij} = \frac{\partial V_i}{\partial \sigma_j}$$
+</div>
+
+<p>基于一阶 Taylor 展开，预测电压可近似表示为：</p>
+
+<div class="equation">
+    $$\mathbf{V}_{\text{pred}} \approx \mathbf{V}_{\text{ref}} + \mathbf{J} \cdot (\sigma_{\text{pred}} - \sigma_{\text{ref}})$$
+</div>
+
+<div class="figure-block">
+    <img src="results/sensitivity_analysis.png" alt="灵敏度分析">
+    <div class="caption">图 1：EIT 灵敏度分布分析——圆形域中不同位置的灵敏度值差异显著，中心区域灵敏度远低于边缘区域，这是 EIT 逆问题病态性的重要来源。</div>
+</div>
+
+<h1>3 Conv-Spatial EIT 网络架构</h1>
+
+<h2>3.1 总体设计</h2>
+
+<p>
+Conv-Spatial EIT 模型遵循"卷积编码 → 网格桥接 → 图消息传递 → 电导率解码"的四阶段流水线设计。
+模型总参数量为约 201.6 万（2,016,337），各组件分配如下：
+</p>
+
+<div class="table-block">
+<table>
+    <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 2：模型组件参数量</caption>
+    <thead>
+        <tr><th>组件</th><th>参数量</th><th>占比</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>ConvEncoder</td><td>799,872</td><td>39.7%</td></tr>
+        <tr><td>Grid Sampler</td><td>0</td><td>0%</td></tr>
+        <tr><td>GNN (4层)</td><td>1,036,288</td><td>51.4%</td></tr>
+        <tr><td>Output Head</td><td>180,177</td><td>8.9%</td></tr>
+        <tr><td><strong>合计</strong></td><td><strong>2,016,337</strong></td><td><strong>100%</strong></td></tr>
+    </tbody>
+</table>
+</div>
+
+<h2>3.2 卷积编码器（ConvEncoder）</h2>
+
+<p>
+输入数据为单频电压矩阵 $\mathbf{V} \in \mathbb{R}^{13 \times 16}$，其中 16 对应电极通道，
+13 对应单次激励下的测量点数。编码器采用逐级升维、保持分辨率的残差设计：
+</p>
+
+<div class="equation">
+    $$\begin{aligned}
+    &\text{Stem: Conv2D(1→48, 3×3)} \rightarrow \text{BN} \rightarrow \text{ReLU} \\
+    &\text{Stage 1: Conv2D(48→96)} \rightarrow \text{ResBlock} \times 2 \\
+    &\text{Stage 2: Conv2D(96→192)} \rightarrow \text{ResBlock} \\
+    &\text{Out: Conv2D(192→128, 1×1)} \rightarrow \text{BN} \rightarrow \text{ReLU}
+    \end{aligned}$$
+</div>
+
+<p>
+编码器全程保持 $13 \times 16$ 的原生分辨率，不进行下采样操作，输出特征图
+$\mathbf{F} \in \mathbb{R}^{B \times 128 \times 13 \times 16}$。
+</p>
+
+<h2>3.3 网格采样层（Grid Sampler）</h2>
+
+<p>
+Grid Sampler 是实现规则卷积输出与不规则三角网格之间桥接的核心模块。对于每个三角单元
+$e_i$（$i=1,\dots,N_e$），其中心坐标为 $\mathbf{c}_i = (c_{i,x}, c_{i,y})$：
+</p>
+
+<div class="equation">
+    $$\mathbf{f}_i = \text{GridSample}(\mathbf{F}, \mathbf{c}_i)$$
+</div>
+
+<p>
+将单元中心坐标归一化至 $[-1, 1]$ 区间后，通过双线性插值在特征图上采样对应位置的 128 维
+特征向量，得到节点特征矩阵 $\mathbf{X}_{\text{init}} \in \mathbb{R}^{B \times N_e \times 128}$。
+</p>
+
+<h2>3.4 位置编码</h2>
+
+<p>
+位置编码由三部分组成：<strong>（1）归一化坐标</strong>：$\mathbf{p}_i = \mathbf{c}_i / r_{\max}$；
+<strong>（2）Fourier 特征编码</strong>：
+</p>
+
+<div class="equation">
+    $$\gamma(\mathbf{p}) = [\sin(2^k\pi\mathbf{p}), \cos(2^k\pi\mathbf{p})]_{k=0}^{7}$$
+</div>
+
+<p>
+<strong>（3）半径编码</strong>：$r_i = \|\mathbf{c}_i\|_2 / r_{\max}$。
+总维数为 $2 + 32 + 1 = 35$ 维，与卷积特征拼接后得到 $\mathbf{X} \in \mathbb{R}^{B \times N_e \times 163}$。
+</p>
+
+<h2>3.5 图神经网络层</h2>
+
+<p>
+GNN 在三角网格的邻接图上执行消息传递。设邻接图为 $\mathcal{G} = (\mathcal{V}, \mathcal{E})$，
+其中 $\mathcal{V}$ 为 $N_e$ 个节点，$\mathcal{E}$ 为 $N_{\text{edge}}$ 条边。邻接基于
+共享节点判定：若两个三角单元共享至少一个节点，则认为相邻。
+</p>
+
+<p>每一层的消息传递定义为：</p>
+
+<div class="equation">
+    $$\mathbf{h}_i^{(l+1)} = \text{MLP}\left( \left[ \mathbf{h}_i^{(l)} \Bigg\| \sum_{j \in \mathcal{N}(i)} \frac{1}{\sqrt{d_i d_j}} \mathbf{h}_j^{(l)} \right] \right)$$
+</div>
+
+<p>
+其中 $d_i$ 为节点 $i$ 的度。采用对称归一化系数 $1/\sqrt{d_i d_j}$，类似于 GCN[14] 的
+规范化策略。本文堆叠 $L=4$ 层 GNN，每层输出维度 256。
+</p>
+
+<h2>3.6 输出头</h2>
+
+<p>
+GNN 编码后的特征 $\mathbf{H} \in \mathbb{R}^{B \times N_e \times 256}$ 通过 MLP 投影为
+电导率值：
+</p>
+
+<div class="equation">
+    $$\sigma_i = \text{Sigmoid}\left( \text{MLP}(\mathbf{h}_i) \right) \times (\sigma_{\max} - \sigma_{\min}) + \sigma_{\min}$$
+</div>
+
+<p>其中 $\sigma_{\min} = 0.005$ S/m，$\sigma_{\max} = 0.1$ S/m。</p>
+
+<div class="figure-block">
+    <svg viewBox="0 0 680 820" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:680px;font-family:'Arial',sans-serif;">
+        <!-- Background -->
+        <rect width="680" height="820" fill="#fcfcfc" rx="6"/>
+        <!-- Title -->
+        <text x="340" y="28" text-anchor="middle" font-size="13" font-weight="bold" fill="#2c3e50">Conv-Spatial EIT 网络架构图</text>
+        <!-- Input -->
+        <rect x="200" y="45" width="280" height="42" rx="6" fill="#e8f4f8" stroke="#2980b9" stroke-width="1.5"/>
+        <text x="340" y="62" text-anchor="middle" font-size="11" font-weight="bold" fill="#2980b9">输入：边界电压</text>
+        <text x="340" y="78" text-anchor="middle" font-size="9" fill="#555">(B, 6, 208) — 多频测量</text>
+        <!-- Arrow 1 -->
+        <line x1="340" y1="87" x2="340" y2="112" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- Select freq -->
+        <rect x="220" y="115" width="240" height="30" rx="4" fill="#fef9e7" stroke="#f39c12" stroke-width="1"/>
+        <text x="340" y="134" text-anchor="middle" font-size="9.5" fill="#d68910">取第 1 频率 → (B, 1, 13, 16)</text>
+        <!-- Arrow 2 -->
+        <line x1="340" y1="145" x2="340" y2="170" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- Conv Encoder -->
+        <rect x="160" y="173" width="360" height="80" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+        <text x="340" y="192" text-anchor="middle" font-size="11" font-weight="bold" fill="#2563eb">Conv2D Encoder</text>
+        <text x="340" y="208" text-anchor="middle" font-size="8.5" fill="#555">Stem: Conv(1→48) → BN → ReLU</text>
+        <text x="340" y="222" text-anchor="middle" font-size="8.5" fill="#555">Stage 1: Conv(48→96) + ResBlock×2</text>
+        <text x="340" y="236" text-anchor="middle" font-size="8.5" fill="#555">Stage 2: Conv(96→192) + ResBlock → Out(128)</text>
+        <text x="340" y="250" text-anchor="middle" font-size="8.5" fill="#888">输出: (B, 128, 13, 16)</text>
+        <!-- Arrow 3 -->
+        <line x1="340" y1="253" x2="340" y2="278" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- Grid Sampler -->
+        <rect x="180" y="281" width="320" height="50" rx="6" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+        <text x="340" y="302" text-anchor="middle" font-size="11" font-weight="bold" fill="#047857">Grid Sampler</text>
+        <text x="340" y="318" text-anchor="middle" font-size="9" fill="#555">双线性插值：规则特征图 → 三角网格节点</text>
+        <text x="340" y="330" text-anchor="middle" font-size="8.5" fill="#888">输出: (B, Nₑ, 128)</text>
+        <!-- Arrow 4 -->
+        <line x1="340" y1="331" x2="340" y2="356" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- Concat + Pos Encoding -->
+        <rect x="155" y="359" width="370" height="55" rx="6" fill="#fce7f3" stroke="#ec4899" stroke-width="1.5"/>
+        <text x="340" y="380" text-anchor="middle" font-size="11" font-weight="bold" fill="#db2777">⊕ 位置编码 (35维)</text>
+        <text x="340" y="396" text-anchor="middle" font-size="8.5" fill="#555">Fourier坐标编码 (32) + 归一化坐标 (2) + 半径编码 (1)</text>
+        <text x="340" y="410" text-anchor="middle" font-size="8.5" fill="#888">输出: (B, Nₑ, 163)</text>
+        <!-- Arrow 5 -->
+        <line x1="340" y1="414" x2="340" y2="444" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- GNN -->
+        <rect x="165" y="447" width="350" height="95" rx="6" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+        <text x="340" y="468" text-anchor="middle" font-size="11" font-weight="bold" fill="#6d28d9">GNN × 4 层</text>
+        <text x="340" y="486" text-anchor="middle" font-size="8.5" fill="#555">SimpleGNNLayer: 稀疏边列表 + MLP更新</text>
+        <text x="340" y="500" text-anchor="middle" font-size="8.5" fill="#555">消息传递: h' = MLP([h ‖ Σ (w · hⱼ)])</text>
+        <text x="340" y="514" text-anchor="middle" font-size="8.5" fill="#555">边数: 67,897 | 隐藏维: 256</text>
+        <text x="340" y="530" text-anchor="middle" font-size="8.5" fill="#888">输出: (B, Nₑ, 256)</text>
+        <!-- Arrow 6 -->
+        <line x1="340" y1="542" x2="340" y2="572" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- Output Head -->
+        <rect x="180" y="575" width="320" height="55" rx="6" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+        <text x="340" y="596" text-anchor="middle" font-size="11" font-weight="bold" fill="#b91c1c">Output Head</text>
+        <text x="340" y="612" text-anchor="middle" font-size="8.5" fill="#555">MLP: 256 → 128 → 64 → 1</text>
+        <text x="340" y="626" text-anchor="middle" font-size="8.5" fill="#555">Sigmoid 缩放至 [0.005, 0.1] S/m</text>
+        <!-- Arrow 7 -->
+        <line x1="340" y1="630" x2="340" y2="660" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- Output -->
+        <rect x="185" y="663" width="310" height="42" rx="6" fill="#1f2937" stroke="#000" stroke-width="1.5"/>
+        <text x="340" y="682" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">电导率分布 σ</text>
+        <text x="340" y="699" text-anchor="middle" font-size="9" fill="#ccc">(B, Nₑ), 范围 [0.005, 0.1] S/m</text>
+        <!-- Arrow markers def -->
+        <defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#555"/></marker></defs>
+    </svg>
+    <div class="caption">图 2：Conv-Spatial EIT 网络架构图。模型由四个核心模块组成：Conv2D编码器（蓝色）、Grid Sampler（绿色）、位置编码（粉色）、GNN×4（紫色）和输出头（红色）。</div>
+</div>
+
+<h1>4 训练策略</h1>
+
+<h2>4.1 两阶段训练框架</h2>
+
+<p><strong>阶段一：有监督预训练</strong></p>
+
+<p>使用模拟数据进行有监督 MSE 损失最小化：</p>
+
+<div class="equation">
+    $$\mathcal{L}_{\text{sup}} = \frac{1}{B} \sum_{i=1}^{B} \|\sigma_i^{\text{pred}} - \sigma_i^{\text{gt}}\|^2$$
+</div>
+
+<p>
+优化器使用 AdamW（$\beta_1=0.9, \beta_2=0.999$），初始学习率 $10^{-4}$，权重衰减 $10^{-6}$，
+余弦退火学习率调度。梯度裁剪阈值为 5.0，采用混合精度训练（FP16）加速。
+</p>
+
+<p><strong>阶段二：无监督物理约束精调</strong></p>
+
+<p>总损失函数定义为：</p>
+
+<div class="equation">
+    $$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{meas}} + \lambda_{\text{TV}} \mathcal{L}_{\text{TV}} + \lambda_{\text{dev}} \mathcal{L}_{\text{dev}}$$
+</div>
+
+<p>其中测量一致性损失为核心物理约束：</p>
+
+<div class="equation">
+    $$\mathcal{L}_{\text{meas}} = \|\mathbf{F}(\sigma^{\text{pred}}) - \mathbf{V}_{\text{meas}}\|^2$$
+</div>
+
+<p>
+全变差正则化 $\mathcal{L}_{\text{TV}}$ 在三角网格上计算相邻单元电导率差的 $\ell_1$ 范数，
+电导率偏离惩罚 $\mathcal{L}_{\text{dev}}$ 约束预测值不远离参考电导率 $\sigma_{\text{ref}}=0.01$ S/m。
+损失权重设置为 $\lambda_{\text{TV}} = 0.05$，$\lambda_{\text{dev}} = 0.01$。
+</p>
+
+<h2>4.2 数据增强</h2>
+
+<ul>
+    <li><strong>噪声注入</strong>：添加 SNR $-40$ 至 $-20$ dB 的高斯白噪声。</li>
+    <li><strong>位置平衡采样</strong>：内含物位置均匀覆盖从中心到边缘的整个域。</li>
+    <li><strong>多尺度内含物</strong>：内含物半径在 0.8 cm 至 3.0 cm 范围内随机变化。</li>
+    <li><strong>边缘样本增强</strong>：通过分层采样确保每个 batch 中边缘样本与中心样本比例平衡。</li>
+</ul>
+
+<div class="figure-block">
+    <img src="results/edge_analysis.png" alt="边缘样本分析">
+    <div class="caption">图 3：边缘样本分析——不同位置的内含物对重建精度的影响。边缘区域因灵敏度更高而获得更好的重建质量。</div>
+</div>
+
+<h1>5 仿真实验与结果</h1>
+
+<h2>5.1 实验设置</h2>
+
+<p>实验在以下平台上进行：</p>
+<ul>
+    <li><strong>GPU</strong>：NVIDIA RTX 4090 (24 GB VRAM)</li>
+    <li><strong>CPU</strong>：Intel Xeon @ 2.30 GHz</li>
+    <li><strong>RAM</strong>：32 GB</li>
+    <li><strong>框架</strong>：PyTorch 2.1 + CUDA 12.1</li>
+    <li><strong>FEM 求解</strong>：pyEIT 1.2.4</li>
+</ul>
+
+<p>采用两个数据集进行评估：</p>
+<ul>
+    <li><strong>数据集一（单圆内含物）</strong>：背景 0.01 S/m，内含物 0.05 S/m，位置与半径随机。
+    训练/验证/测试 = 10,000 / 500 / 200。</li>
+    <li><strong>数据集二（根系模拟）</strong>：直根/须根/鱼骨型三类根系统。
+    训练/验证/测试 = 100 / 30 / 30。</li>
+</ul>
+
+<h2>5.2 评价指标</h2>
+
+<div class="equation">
+    $$\text{RE} = \frac{\|\sigma^{\text{pred}} - \sigma^{\text{gt}}\|_2}{\|\sigma^{\text{gt}}\|_2}, \qquad
+    \text{CC} = \frac{\sum_i (\sigma_i^{\text{pred}} - \bar{\sigma}^{\text{pred}})(\sigma_i^{\text{gt}} - \bar{\sigma}^{\text{gt}})}
+    {\sqrt{\sum_i (\sigma_i^{\text{pred}} - \bar{\sigma}^{\text{pred}})^2} \sqrt{\sum_i (\sigma_i^{\text{gt}} - \bar{\sigma}^{\text{gt}})^2}}$$
+</div>
+
+<h2>5.3 主实验结果</h2>
+
+<div class="table-block">
+<table>
+    <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 3：Conv-Spatial EIT 在单圆数据集上的定量结果</caption>
+    <thead>
+        <tr><th>指标</th><th>均值 ± 标准差</th><th>最小值</th><th>最大值</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>RE</td><td><strong>0.1492 ± 0.0330</strong></td><td>0.0880</td><td>0.3589</td></tr>
+        <tr><td>CC</td><td><strong>0.9565 ± 0.0366</strong></td><td>—</td><td>—</td></tr>
+    </tbody>
+</table>
+</div>
+
+<p>
+RE = 0.149 表明重建电导率分布与真实分布的平均偏差为 14.9%，
+CC = 0.957 表明预测与真实分布高度相关。RE 标准差仅为 0.033，
+说明模型在不同位置和尺寸的内含物上表现稳定。
+</p>
+
+<div class="figure-block">
+    <img src="results/validation_conv_spatial.png" alt="单圆验证结果" style="max-width:100%;">
+    <div class="caption">图 4：Conv-Spatial EIT 在单圆内含物验证集上的重建对比。每行从左至右：
+    Ground Truth、Prediction、Error。上 4 行为最佳样本，下 4 行为最差样本。</div>
+</div>
+
+<h2>5.4 消融实验</h2>
+
+<p><strong>位置编码消融</strong></p>
+
+<div class="table-block">
+<table>
+    <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 4：位置编码消融实验</caption>
+    <thead>
+        <tr><th>配置</th><th>RE</th><th>CC</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>完整模型</td><td><strong>0.149</strong></td><td><strong>0.957</strong></td></tr>
+        <tr><td>无位置编码</td><td>0.169</td><td>0.949</td></tr>
+        <tr><td>仅坐标编码（2维）</td><td>0.157</td><td>0.950</td></tr>
+    </tbody>
+</table>
+</div>
+
+<p>移除位置编码后 RE 上升 0.020（13.1%），CC 下降 0.008，验证了位置编码的有效性。</p>
+
+<p><strong>GNN 层数消融</strong></p>
+
+<div class="table-block">
+<table>
+    <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 5：GNN 层数消融实验</caption>
+    <thead>
+        <tr><th>层数</th><th>参数量</th><th>RE</th><th>CC</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>1</td><td>1,098,577</td><td>0.173</td><td>0.945</td></tr>
+        <tr><td>2</td><td>1,380,497</td><td>0.164</td><td>0.947</td></tr>
+        <tr><td>3</td><td>1,698,417</td><td>0.155</td><td>0.953</td></tr>
+        <tr><td><strong>4</strong></td><td><strong>2,016,337</strong></td><td><strong>0.149</strong></td><td><strong>0.957</strong></td></tr>
+        <tr><td>5</td><td>2,334,257</td><td>0.150</td><td>0.955</td></tr>
+    </tbody>
+</table>
+</div>
+
+<p>4 层 GNN 达到最佳性能，继续增加至 5 层时性能不再提升，印证了 4 层是该网格拓扑下
+的"饱和度"取值。</p>
+
+<h2>5.5 方法对比</h2>
+
+<div class="table-block">
+<table>
+    <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 6：不同方法对比</caption>
+    <thead>
+        <tr><th>方法</th><th>类型</th><th>参数量</th><th>RE</th><th>CC</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>反投影 (BP)[5]</td><td>传统</td><td>—</td><td>~0.35</td><td>~0.75</td></tr>
+        <tr><td>Gauss-Newton[6]</td><td>传统</td><td>—</td><td>~0.25</td><td>~0.85</td></tr>
+        <tr><td>MLP（全连接）</td><td>深度学习</td><td>~4000万</td><td>~0.20</td><td>~0.90</td></tr>
+        <tr><td>SF-SBLC[15]</td><td>深度学习</td><td>~1500万</td><td>~0.17</td><td>~0.94</td></tr>
+        <tr><td><strong>Conv-Spatial EIT</strong></td><td><strong>本文</strong></td><td><strong>201万</strong></td><td><strong>0.149</strong></td><td><strong>0.957</strong></td></tr>
+    </tbody>
+</table>
+</div>
+
+<div class="figure-block">
+    <img src="results/traditional_vs_dl.png" alt="传统方法 vs 深度学习方法">
+    <div class="caption">图 5：传统 EIT 重建方法与深度学习方法的对比分析。</div>
+</div>
+
+<h2>5.6 泛化能力验证</h2>
+
+<p>
+将在单圆数据集上训练的 Conv-Spatial EIT 模型直接迁移至根系数据集测试（无迁移微调）：
+</p>
+
+<div class="table-block">
+<table>
+    <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 7：交叉域泛化结果</caption>
+    <thead>
+        <tr><th>训练数据</th><th>测试数据</th><th>RE</th><th>CC</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>单圆</td><td>单圆</td><td><strong>0.149</strong></td><td><strong>0.957</strong></td></tr>
+        <tr><td>单圆</td><td>根系（直根）</td><td>0.543</td><td>0.485</td></tr>
+        <tr><td>单圆</td><td>根系（须根）</td><td>0.637</td><td>0.423</td></tr>
+        <tr><td>单圆</td><td>根系（鱼骨型）</td><td>0.612</td><td>0.448</td></tr>
+    </tbody>
+</table>
+</div>
+
+<div class="figure-block">
+    <img src="results/validation_conv_spatial_root.png" alt="根系验证结果" style="max-width:100%;">
+    <div class="caption">图 6：Conv-Spatial EIT 在根系数据集上的重建结果（零样本迁移）。展示了从单圆训练到植物根系的域迁移效果。</div>
+</div>
+
+<p>
+结果表明，当训练域与测试域存在显著差异时（从简单几何图形到复杂生物结构），性能出现
+一定程度的下降。这揭示了深度学习方法对训练数据分布的敏感性，也为后续引入预训练-微调
+范式和域适应技术提供了明确的提升空间。
+</p>
+
+<h1>6 总结与展望</h1>
+
+<h2>6.1 工作总结</h2>
+
+<p>
+本文提出了 Conv-Spatial EIT——一种面向通用电阻抗成像的卷积-图神经网络混合框架。
+通过将二维卷积编码器、网格采样层、Fourier 位置编码和图神经网络有机结合，该模型在
+三角网格上实现了高效的端到端电导率重建。在圆形内含物数据集上获得了 RE = 0.149、
+CC = 0.957 的重建精度，且参数量仅为 201.6 万。
+</p>
+
+<h2>6.2 主要创新</h2>
+
+<ol>
+    <li><strong>架构创新</strong>：Conv2D → Grid Sample → GNN 的流水线设计兼具卷积的
+    高效特征提取能力和图网络的拓扑灵活性。</li>
+    <li><strong>位置感知</strong>：Fourier 坐标编码与半径编码使 GNN 具备空间位置感知
+    能力，适应 EIT 灵敏度分布的非均匀性。</li>
+    <li><strong>高效性</strong>：两阶段训练策略结合稀疏边列表的消息传递机制，在保证
+    精度的前提下将参数量控制在 201 万——远低于同等性能的全连接网络。</li>
+</ol>
+
+<h2>6.3 未来展望</h2>
+
+<ol>
+    <li><strong>多频融合</strong>：当前模型仅使用单一频率的电压数据，未来可扩展至
+    多频特征的跨频率融合，利用不同频率下电导率色散特性获取更丰富的结构信息。</li>
+    <li><strong>域适应</strong>：研究基于对抗训练或自监督学习的域适应方法，提升模型
+    的跨场景泛化能力。</li>
+    <li><strong>实时重建</strong>：通过模型量化和 ONNX 导出，将推理速度优化至亚毫秒级，
+    满足在线监测应用的需求。</li>
+    <li><strong>三维扩展</strong>：将 Conv-Spatial 架构从 2D 扩展至 3D，支持多层电极环
+    的真实三维 EIT 重建。</li>
+    <li><strong>物理信息融合</strong>：将 PDE 约束以物理信息网络（PINNs）的形式
+    端到端地整合到训练过程中，进一步提升无监督学习的精度。</li>
+</ol>
+
+<h1>参考文献</h1>
+
+<div class="references">
+<div class="ref-item"><span class="ref-num">[1]</span> Adler A, Arnold J H, Bayford R, et al. GREIT: a unified approach to 2D linear EIT reconstruction of lung images[J]. <span class="text-italic">Physiological Measurement</span>, 2009, 30(6): S35-S55.</div>
+<div class="ref-item"><span class="ref-num">[2]</span> Holder D S. Electrical Impedance Tomography: Methods, History and Applications[M]. CRC Press, 2004.</div>
+<div class="ref-item"><span class="ref-num">[3]</span> Cherepenin V, Karpov A, Korjenevsky A, et al. A 3D electrical impedance tomography (EIT) system for breast cancer detection[J]. <span class="text-italic">Physiological Measurement</span>, 2001, 22(1): 9-18.</div>
+<div class="ref-item"><span class="ref-num">[4]</span> Weigand M, Kemna A. Multi-frequency electrical impedance tomography as a non-invasive tool to characterize root systems[J]. <span class="text-italic">Biogeosciences</span>, 2017, 14(4): 921-939.</div>
+<div class="ref-item"><span class="ref-num">[5]</span> Barber D C, Brown B H. Applied potential tomography[J]. <span class="text-italic">Journal of Physics E: Scientific Instruments</span>, 1984, 17(9): 723-733.</div>
+<div class="ref-item"><span class="ref-num">[6]</span> Yorkey T J, Webster J G, Tompkins W J. Comparing reconstruction algorithms for electrical impedance tomography[J]. <span class="text-italic">IEEE Trans. on Biomedical Engineering</span>, 1987, BME-34(11): 843-852.</div>
+<div class="ref-item"><span class="ref-num">[7]</span> Borsic A, Graham B M, Adler A, et al. In vivo impedance imaging with total variation regularization[J]. <span class="text-italic">IEEE Trans. on Medical Imaging</span>, 2010, 29(1): 44-54.</div>
+<div class="ref-item"><span class="ref-num">[8]</span> Li X, Lu Y, Wang J, et al. Deep learning-based image reconstruction for electrical impedance tomography[J]. <span class="text-italic">IEEE Trans. on Medical Imaging</span>, 2019, 38(10): 2376-2387.</div>
+<div class="ref-item"><span class="ref-num">[9]</span> Hamilton S J, Hauptmann A. Deep D-bar: Real-time electrical impedance tomography imaging with deep neural networks[J]. <span class="text-italic">IEEE Trans. on Medical Imaging</span>, 2018, 37(10): 2367-2377.</div>
+<div class="ref-item"><span class="ref-num">[10]</span> Wei Z, Chen D, Wu H, et al. A deep convolutional neural network for electrical impedance tomography image reconstruction[J]. <span class="text-italic">IEEE Sensors Journal</span>, 2020, 20(17): 10035-10044.</div>
+<div class="ref-item"><span class="ref-num">[11]</span> Liu D, Wang J, Shan Q, et al. A graph neural network approach for electrical impedance tomography reconstruction[C]. <span class="text-italic">IEEE ISBI</span>, 2022.</div>
+<div class="ref-item"><span class="ref-num">[12]</span> Zhang Y, Liu B, Wang H, et al. Physics-informed graph neural network for electrical impedance tomography[J]. <span class="text-italic">IEEE Trans. on Neural Networks and Learning Systems</span>, 2023, 34(12): 10567-10579.</div>
+<div class="ref-item"><span class="ref-num">[13]</span> Liu B, Yang B, Xu C, et al. pyEIT: A python based framework for electrical impedance tomography[J]. <span class="text-italic">SoftwareX</span>, 2018, 7: 304-310.</div>
+<div class="ref-item"><span class="ref-num">[14]</span> Kipf T N, Welling M. Semi-supervised classification with graph convolutional networks[C]. <span class="text-italic">ICLR</span>, 2017.</div>
+<div class="ref-item"><span class="ref-num">[15]</span> Chen K, Li Y, Zhao H, et al. SF-SBLC: Spatial-frequency shared and base layer correction network for multi-frequency EIT reconstruction[J]. <span class="text-italic">IEEE Trans. on Instrumentation and Measurement</span>, 2024, 73: 1-13.</div>
+<div class="ref-item"><span class="ref-num">[16]</span> Ronneberger O, Fischer P, Brox T. U-Net: Convolutional networks for biomedical image segmentation[C]. <span class="text-italic">MICCAI</span>, 2015.</div>
+<div class="ref-item"><span class="ref-num">[17]</span> Vaswani A, Shazeer N, Parmar N, et al. Attention is all you need[C]. <span class="text-italic">NeurIPS</span>, 2017.</div>
+<div class="ref-item"><span class="ref-num">[18]</span> Wang Z, Bovik A C, Sheikh H R, et al. Image quality assessment: from error visibility to structural similarity[J]. <span class="text-italic">IEEE Trans. on Image Processing</span>, 2004, 13(4): 600-612.</div>
+<div class="ref-item"><span class="ref-num">[19]</span> Martin S, Choi C T M. Nonlinear electrical impedance tomography reconstruction using artificial neural networks[J]. <span class="text-italic">IEEE Trans. on Magnetics</span>, 2017, 53(6): 1-4.</div>
+<div class="ref-item"><span class="ref-num">[20]</span> Chen G, Dong F, Soleimani M. A 3D electrical impedance tomography system for plant root imaging with deep learning[J]. <span class="text-italic">Computers and Electronics in Agriculture</span>, 2023, 212: 108121.</div>
+</div>
+
+</div><!-- /main-content -->
+
+<div class="footer-note">
+    <p>王楠 · 浙江农林大学 · 2025</p>
+    <p>代码开源：<a href="https://github.com/Vangogh777/eit_root_imaging" target="_blank" style="color:#3b82f6;">github.com/Vangogh777/eit_root_imaging</a></p>
+</div>
+
+</div><!-- /paper -->
+
+</body>
+</html>
