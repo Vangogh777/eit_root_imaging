@@ -143,7 +143,7 @@ body::before {
             <a class="back-btn" href="/docs/index.html">← 返回首页</a>
             <h1>实验结果</h1>
         </div>
-        <span class="count">共 6 组</span>
+        <span class="count">共 10 组</span>
     </div>
 
     <div class="gallery">
@@ -214,7 +214,53 @@ body::before {
             </a>
         </div>
 
-    </div>
+    
+        <div class="card">
+            <a href="20260616_212126_supervised_best_prediction.png" target="_blank">
+            <div class="img-wrap"><img src="20260616_212126_supervised_best_prediction.png" alt="有监督最佳模型"></div>
+            <div class="info">
+                <h3>有监督最佳模型重建结果</h3>
+                <p>Conv-Spatial EIT 有监督预训练最佳模型在验证集上的<br>重建对比。RE=0.151, CC=0.954。</p>
+                <span class="badge">RE = 0.151 · CC = 0.954</span>
+            </div>
+            </a>
+        </div>
+
+        <div class="card">
+            <a href="comparison_best_vs_unsup.png" target="_blank">
+            <div class="img-wrap"><img src="comparison_best_vs_unsup.png" alt="有监督 vs 无监督"></div>
+            <div class="info">
+                <h3>有监督预训练 vs 无监督精调对比</h3>
+                <p>有监督预训练模型与无监督物理约束精调 20 epoch 后的<br>重建结果对比分析。</p>
+                <span class="badge">两阶段训练对比</span>
+            </div>
+            </a>
+        </div>
+
+        <div class="card">
+            <a href="unsup_20epoch_results.png" target="_blank">
+            <div class="img-wrap"><img src="unsup_20epoch_results.png" alt="无监督精调结果"></div>
+            <div class="info">
+                <h3>无监督物理约束精调结果</h3>
+                <p>无监督训练 20 epoch 后的重建效果，<br>物理约束驱动的自监督学习验证。</p>
+                <span class="badge">无监督学习 · 物理约束</span>
+            </div>
+            </a>
+        </div>
+
+        <div class="card">
+            <a href="validation_conv/" target="_blank">
+            <div class="img-wrap" style="display:flex;align-items:center;justify-content:center;background:#0a0e17;">
+                <span style="font-size:48px;opacity:0.5;">📁</span>
+            </div>
+            <div class="info">
+                <h3>验证集详细报告</h3>
+                <p>模型评估报告、指标 JSON、逐样本重建结果。</p>
+                <span class="badge">metrics · report</span>
+            </div>
+            </a>
+        </div>
+</div>
 
 </div>
 </body>
