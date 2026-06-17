@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/docs/favicon.svg" type="image/svg+xml">
 <title>Conv-Spatial EIT 研究展示</title>
 <style>
 /* ===== Reset ===== */
@@ -43,6 +44,14 @@ body::after {
     pointer-events: none;
     z-index: 0;
 }
+
+/* ===== Custom Scrollbar ===== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(15,23,42,0.6); }
+::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(59,130,246,0.4); }
+::-webkit-scrollbar-corner { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgba(59,130,246,0.2) rgba(15,23,42,0.6); }
 
 /* ===== Container ===== */
 .container { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px; }
@@ -440,6 +449,15 @@ body::after {
         </div>
         </a>
 
+        <a href="/datasets/" style="text-decoration:none;display:block;">
+        <div class="card">
+            <div class="card-icon">🗂️</div>
+            <h3>训练数据集</h3>
+            <p>浏览多样化训练数据：单圆、椭圆、双圆、正方形。<br>查看电导率分布和边界电压。</p>
+            <span class="card-tag">Sigma · Voltage</span>
+        </div>
+        </a>
+
         <a href="/results/" style="text-decoration:none;display:block;">
         <div class="card">
             <div class="card-icon">📊</div>
@@ -501,9 +519,9 @@ body::after {
     <div class="gallery">
 
         <div class="gallery-item">
-            <a href="/results/validation_conv_spatial.png" target="_blank">
+            <a href="/results/validation_conv_spatial.png">
             <div class="img-wrap">
-                <img src="/results/validation_conv_spatial.png" alt="单圆验证结果">
+                <img src="/results/thumbs/validation_conv_spatial.png" alt="单圆验证结果" loading="lazy">
             </div>
             <div class="info">
                 <h4>单圆内含物重建对比</h4>
@@ -513,9 +531,9 @@ body::after {
         </div>
 
         <div class="gallery-item">
-            <a href="/results/validation_conv_spatial_root.png" target="_blank">
+            <a href="/results/validation_conv_spatial_root.png">
             <div class="img-wrap">
-                <img src="/results/validation_conv_spatial_root.png" alt="根系验证结果">
+                <img src="/results/thumbs/validation_conv_spatial_root.png" alt="根系验证结果" loading="lazy">
             </div>
             <div class="info">
                 <h4>根系泛化验证</h4>
@@ -525,9 +543,9 @@ body::after {
         </div>
 
         <div class="gallery-item">
-            <a href="/results/traditional_vs_dl.png" target="_blank">
+            <a href="/results/traditional_vs_dl.png">
             <div class="img-wrap">
-                <img src="/results/traditional_vs_dl.png" alt="方法对比">
+                <img src="/results/thumbs/traditional_vs_dl.png" alt="方法对比" loading="lazy">
             </div>
             <div class="info">
                 <h4>传统 vs 深度学习方法对比</h4>
@@ -537,9 +555,9 @@ body::after {
         </div>
 
         <div class="gallery-item">
-            <a href="/results/sensitivity_analysis.png" target="_blank">
+            <a href="/results/sensitivity_analysis.png">
             <div class="img-wrap">
-                <img src="/results/sensitivity_analysis.png" alt="灵敏度分析">
+                <img src="/results/thumbs/sensitivity_analysis.png" alt="灵敏度分析" loading="lazy">
             </div>
             <div class="info">
                 <h4>EIT 灵敏度分析</h4>
@@ -549,9 +567,9 @@ body::after {
         </div>
 
         <div class="gallery-item">
-            <a href="/results/edge_analysis.png" target="_blank">
+            <a href="/results/edge_analysis.png">
             <div class="img-wrap">
-                <img src="/results/edge_analysis.png" alt="边缘分析">
+                <img src="/results/thumbs/edge_analysis.png" alt="边缘分析" loading="lazy">
             </div>
             <div class="info">
                 <h4>边缘样本分析</h4>
@@ -561,9 +579,9 @@ body::after {
         </div>
 
         <div class="gallery-item">
-            <a href="/results/edge_sampling_test.png" target="_blank">
+            <a href="/results/edge_sampling_test.png">
             <div class="img-wrap">
-                <img src="/results/edge_sampling_test.png" alt="边缘采样">
+                <img src="/results/thumbs/edge_sampling_test.png" alt="边缘采样" loading="lazy">
             </div>
             <div class="info">
                 <h4>边缘采样策略测试</h4>
@@ -586,5 +604,40 @@ body::after {
 
 </div>
 
+
+<!-- ===== Global Image Lightbox ===== -->
+<style>
+.lb-overlay { display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:9999; }
+.lb-overlay.active { display:block; }
+.lb-img { position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);max-width:90vw;max-height:85vh;object-fit:contain;transition:transform 0.2s;user-select:none; }
+.lb-toolbar { position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10000;background:rgba(15,23,42,0.9);padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.1); }
+.lb-toolbar button { background:none;border:1px solid rgba(255,255,255,0.15);color:#94a3b8;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:15px;min-width:32px; }
+.lb-toolbar button:hover { background:rgba(255,255,255,0.05); }
+.lb-close { background:rgba(239,68,68,0.1)!important;border-color:rgba(239,68,68,0.3)!important;color:#ef4444!important;padding:6px 14px!important; }
+.lb-info { position:fixed;top:16px;left:50%;transform:translateX(-50%);color:#94a3b8;font-size:13px;background:rgba(15,23,42,0.8);padding:6px 14px;border-radius:8px;z-index:10000; }
+.back-to-top { position:fixed;bottom:24px;right:24px;width:40px;height:40px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);border-radius:50%;color:#60a5fa;font-size:20px;cursor:pointer;z-index:999;display:none;align-items:center;justify-content:center;transition:all 0.3s; }
+.back-to-top:hover { background:rgba(59,130,246,0.3);transform:translateY(-2px); }
+</style>
+<script>
+var _lb={s:1,r:0,fx:1,fy:1};
+(function(){
+var e=document.createElement("div");e.id="lb";e.className="lb-overlay";
+e.innerHTML='<img class="lb-img" id="lbimg"><div class="lb-info" id="lbinfo"></div><div class="lb-toolbar"><button onclick="_lbz(-0.2)">\u2212</button><button onclick="_lbz(0.2)">+</button><button onclick="_lbr(-90)">\u21ba</button><button onclick="_lbr(90)">\u21bb</button><button onclick="_lbfx()">\u2194</button><button onclick="_lbfy()">\u2195</button><button onclick="_lbreset()" style="color:#f59e0b">R</button><button class="lb-close" onclick="_lbclose()">\u2715</button></div>';
+document.body.appendChild(e);
+e.addEventListener("click",function(ev){if(ev.target===this)_lbclose();});
+e.addEventListener("wheel",function(ev){ev.preventDefault();_lbz(ev.deltaY<0?0.1:-0.1);},{passive:false});
+})();
+window._lbopen=function(src,title){document.getElementById("lbimg").src=src;document.getElementById("lb").classList.add("active");document.getElementById("lbinfo").textContent=title||"";document.body.style.overflow="hidden";_lbreset();};
+window._lbclose=function(){document.getElementById("lb").classList.remove("active");document.body.style.overflow="";};
+function _lbup(){var i=document.getElementById("lbimg");i.style.transform="translate(-50%,-50%) scale("+_lb.s+") rotate("+_lb.r+"deg) scaleX("+_lb.fx+") scaleY("+_lb.fy+")";}
+function _lbz(d){_lb.s=Math.max(0.2,Math.min(5,_lb.s+d));_lbup();}
+function _lbr(d){_lb.r=(_lb.r+d)%360;_lbup();}
+function _lbfx(){_lb.fx*=-1;_lbup();}
+function _lbfy(){_lb.fy*=-1;_lbup();}
+function _lbreset(){_lb.s=1;_lb.r=0;_lb.fx=1;_lb.fy=1;_lbup();}
+document.addEventListener("keydown",function(ev){if(!document.getElementById("lb").classList.contains("active"))return;if(ev.key==="Escape")_lbclose();if(ev.key==="+"||ev.key==="=")_lbz(0.2);if(ev.key==="-")_lbz(-0.2);if(ev.key==="r")_lbreset();});
+document.addEventListener("click",function(ev){var a=ev.target.closest("a");if(!a)return;var h=a.getAttribute("href");if(!h)return;if(/\.(png|jpg|jpeg|gif|svg|webp)(\?|$)/i.test(h)){ev.preventDefault();var t=a.querySelector("h4,h3")||a.querySelector("[class*=\"title\"]");_lbopen(h,t?t.textContent:"");}});
+var bt=document.createElement("div");bt.className="back-to-top";bt.innerHTML="\u2191";bt.title="\u56de\u5230\u9876\u90e8";bt.addEventListener("click",function(){window.scrollTo({top:0,behavior:"smooth"});});document.body.appendChild(bt);window.addEventListener("scroll",function(){bt.style.display=window.scrollY>400?"flex":"none";});
+</script>
 </body>
 </html>

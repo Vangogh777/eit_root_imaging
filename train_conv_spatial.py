@@ -75,10 +75,10 @@ def train():
     print(f"网格: {n_elems} 单元")
 
     # 检查/生成数据
-    h5_path = "data/generated/circle_dataset.h5"
+    h5_path = "data/generated/mixed_dataset.h5"
     if args.generate or not os.path.exists(h5_path):
-        print("生成单圆数据集...")
-        from data.generate_circle_dataset import generate_dataset
+        print("生成多样化数据集...")
+        from data.generate_mixed_dataset import generate_dataset
         generate_dataset(
             config_path=args.mesh_config,
             output_dir="data/generated",
@@ -205,13 +205,14 @@ def train():
             print(f"  恢复调度器状态")
         print(f"恢复: {args.resume}")
 
+    criterion = nn.MSELoss()  # 共享损失函数（有监督+半监督共用）
+
     # ============ 3. 有监督预训练 ============
     if args.mode in ("supervised", "both"):
         print("\n" + "=" * 50)
         print("阶段 1: 有监督 MSE 预训练")
         print("=" * 50)
 
-        criterion = nn.MSELoss()
         best_re = float('inf')
         scaler = torch.amp.GradScaler()
 
@@ -332,6 +333,7 @@ def train():
             epoch_loss = 0.0
             for batch in tqdm(train_loader, desc=f"Unsup Epoch {epoch}"):
                 V = batch['voltages'].to(device).view(-1, 6, 13, 16)
+                S_gt = batch['sigmas'].to(device)  # GT 用于半监督锚点
 
                 optimizer.zero_grad()
                 with torch.amp.autocast('cuda'):
@@ -341,7 +343,12 @@ def train():
                     loss_m = mcl(sp, batch['voltages'].to(device))
                     loss_t = tvl(sp)
                     loss_d = sdl(sp)
-                    total = loss_m + 0.05 * loss_t + 0.01 * loss_d
+                    loss_sup = criterion(sp, S_gt)  # 半监督锚点
+                    # 混合: 30% 有监督锚点 + 70% 物理约束
+                    total = (0.3 * loss_sup +
+                             0.5 * loss_m +
+                             0.1 * loss_t +
+                             0.1 * loss_d)
 
                 # 跳过异常 batch
                 if torch.isnan(total) or torch.isinf(total) or total.item() > 10.0:

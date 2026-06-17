@@ -13,6 +13,12 @@ EIT 结果动态展示服务器
 
 import os, sys, json, glob, argparse, importlib.util
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
+
+
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """多线程 HTTP 服务器，避免大文件下载阻塞其他请求"""
+    daemon_threads = True
 from urllib.parse import urlparse
 from pathlib import Path
 import mimetypes
@@ -443,11 +449,19 @@ def inject_training_card_into_homepage(homepage_html: str) -> str:
 
 
 BASE_STYLE = '''
+<link rel="icon" href="/docs/favicon.svg" type="image/svg+xml">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; background: #0a0e17; color: #e0e8f0; min-height: 100vh; line-height: 1.6; }
 body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.06) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.06) 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, rgba(6,182,212,0.04) 0%, transparent 50%); pointer-events: none; z-index: 0; }
 body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-image: linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px); background-size: 60px 60px; pointer-events: none; z-index: 0; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(15,23,42,0.6); }
+::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(59,130,246,0.4); }
+::-webkit-scrollbar-corner { background: transparent; }
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: rgba(59,130,246,0.2) rgba(15,23,42,0.6); }
 .container { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px; }
 .navbar { padding: 20px 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(59,130,246,0.15); margin-bottom: 32px; }
 .navbar-left { display: flex; align-items: center; gap: 12px; }
@@ -472,8 +486,25 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; bottom: 0
 .run-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: #8899aa; margin-top: 4px; }
 .run-meta-label { color: #556677; }
 .run-chart { margin-top: 6px; }
+.back-to-top { position:fixed;bottom:24px;right:24px;width:40px;height:40px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);border-radius:50%;color:#60a5fa;font-size:20px;cursor:pointer;z-index:999;display:none;align-items:center;justify-content:center;transition:all 0.3s; }
+.back-to-top:hover { background:rgba(59,130,246,0.3);transform:translateY(-2px); }
+.lb-overlay { display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:9999; }
+.lb-overlay.active { display:block; }
+.lb-img { position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);max-width:90vw;max-height:85vh;object-fit:contain;transition:transform 0.2s;user-select:none; }
+.lb-toolbar { position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10000;background:rgba(15,23,42,0.9);padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.1); }
+.lb-toolbar button { background:none;border:1px solid rgba(255,255,255,0.15);color:#94a3b8;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:15px;min-width:32px; }
+.lb-toolbar button:hover { background:rgba(255,255,255,0.05); }
+.lb-close { background:rgba(239,68,68,0.1)!important;border-color:rgba(239,68,68,0.3)!important;color:#ef4444!important;padding:6px 14px!important; }
+.lb-info { position:fixed;top:16px;left:50%;transform:translateX(-50%);color:#94a3b8;font-size:13px;background:rgba(15,23,42,0.8);padding:6px 14px;border-radius:8px;z-index:10000; }
 </style>
-'''
+<script>
+(function(){
+if(document.getElementById('lb-inline'))return;
+var s=document.createElement('script');s.id='lb-inline';
+s.textContent='var _lb={s:1,r:0,fx:1,fy:1};\nvar e=document.createElement("div");e.id="lb";e.className="lb-overlay";e.innerHTML='+"'"+'<img class="lb-img" id="lbimg"><div class="lb-info" id="lbinfo"></div><div class="lb-toolbar"><button onclick="_lbz(-0.2)">−</button><button onclick="_lbz(0.2)">+</button><button onclick="_lbr(-90)">↺</button><button onclick="_lbr(90)">↻</button><button onclick="_lbfx()">↔</button><button onclick="_lbfy()">↕</button><button onclick="_lbreset()" style="color:#f59e0b">R</button><button class="lb-close" onclick="_lbclose()">✕</button></div>'+"'"+";document.body.appendChild(e);\nwindow._lbopen=function(src,title){document.getElementById(\"lbimg\").src=src;document.getElementById(\"lb\").classList.add(\"active\");document.getElementById(\"lbinfo\").textContent=title||\"\";document.body.style.overflow=\"hidden\";_lbreset();};\nwindow._lbclose=function(){document.getElementById(\"lb\").classList.remove(\"active\");document.body.style.overflow=\"\";};\nfunction _lbup(){var i=document.getElementById(\"lbimg\");i.style.transform=\"translate(-50%,-50%) scale(\"+_lb.s+\") rotate(\"+_lb.r+\"deg) scaleX(\"+_lb.fx+\") scaleY(\"+_lb.fy+\")\";}\nfunction _lbz(d){_lb.s=Math.max(0.2,Math.min(5,_lb.s+d));_lbup();}\nfunction _lbr(d){_lb.r=(_lb.r+d)%360;_lbup();}\nfunction _lbfx(){_lb.fx*=-1;_lbup();}\nfunction _lbfy(){_lb.fy*=-1;_lbup();}\nfunction _lbreset(){_lb.s=1;_lb.r=0;_lb.fx=1;_lb.fy=1;_lbup();}\ndocument.getElementById(\"lb\").addEventListener(\"click\",function(ev){if(ev.target===this)_lbclose();});\ndocument.getElementById(\"lb\").addEventListener(\"wheel\",function(ev){ev.preventDefault();_lbz(ev.deltaY<0?0.1:-0.1);},{passive:false});\ndocument.addEventListener(\"keydown\",function(ev){if(!document.getElementById(\"lb\").classList.contains(\"active\"))return;if(ev.key===\"Escape\")_lbclose();if(ev.key===\"+\"||ev.key===\"=\")_lbz(0.2);if(ev.key===\"-\")_lbz(-0.2);if(ev.key===\"r\")_lbreset();});\ndocument.addEventListener(\"click\",function(ev){var a=ev.target.closest(\"a\");if(!a)return;var h=a.getAttribute(\"href\");if(!h)return;if(/\\.(png|jpg|jpeg|gif|svg|webp)(\\?|$)/i.test(h)){ev.preventDefault();var t=a.querySelector(\"h4,h3\")||a.querySelector(\"[class*=\\\"title\\\"]\");_lbopen(h,t?t.textContent:\"\");}});\nvar bt=document.createElement(\"div\");bt.className=\"back-to-top\";bt.innerHTML=\"↑\";bt.title=\"\u56de\u5230\u9876\u90e8\";bt.addEventListener(\"click\",function(){window.scrollTo({top:0,behavior:\"smooth\"});});document.body.appendChild(bt);window.addEventListener(\"scroll\",function(){bt.style.display=window.scrollY>400?\"flex\":\"none\";});';
+document.head.appendChild(s);
+})();
+</script>'''
 
 
 
@@ -608,23 +639,56 @@ def generate_training_detail(run_id: str) -> str:
         if not values:
             return '<div style="color:#667788;font-size:12px;">\u65E0\u6570\u636E</div>'
         n = len(values)
-        h, w = 120, 500
+        # Chart dimensions
+        margin_l, margin_r, margin_t, margin_b = 55, 10, 10, 28
+        cw, ch = 500, 150  # chart area
+        sw, sh = cw + margin_l + margin_r, ch + margin_t + margin_b
+        
         min_v, max_v = min(values), max(values)
         rng = max(max_v - min_v, 1e-8)
+        
+        # Y-axis: compute nice ticks
+        y_ticks = []
+        for i in range(5):
+            tick_val = min_v + rng * i / 4.0
+            y_ticks.append(tick_val)
+        
+        # Data points
         pts = []
         for i, v in enumerate(values):
-            x = i / max(n - 1, 1) * w
-            y = h - (v - min_v) / rng * (h - 10) - 5
+            x = margin_l + i / max(n - 1, 1) * cw
+            y = margin_t + ch - (v - min_v) / rng * ch
             pts.append(f"{x:.1f},{y:.1f}")
         poly = " ".join(pts)
+        
+        # Grid lines + Y labels
         grid = ""
-        for i in range(5):
-            gy = i / 4 * h
-            grid += f'<line x1="0" y1="{gy:.0f}" x2="{w}" y2="{gy:.0f}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>'
-        return f'''<svg width="100%" viewBox="0 0 {w} {h}" style="max-width:{w}px;">
+        for i, tv in enumerate(y_ticks):
+            gy = margin_t + ch - (i / 4.0) * ch
+            grid += f'<line x1="{margin_l}" y1="{gy:.0f}" x2="{margin_l+cw}" y2="{gy:.0f}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>'
+            grid += f'<text x="{margin_l-6}" y="{gy+4:.0f}" fill="#667788" font-size="10" text-anchor="end">{tv:.4f}</text>'
+        
+        # X-axis labels
+        x_ticks_n = min(6, n)
+        for i in range(x_ticks_n):
+            epoch_i = int(i * (n - 1) / max(x_ticks_n - 1, 1))
+            xx = margin_l + epoch_i / max(n - 1, 1) * cw
+            grid += f'<text x="{xx:.0f}" y="{sh-6:.0f}" fill="#667788" font-size="10" text-anchor="middle">{epoch_i+1}</text>'
+        
+        # Axes
+        grid += f'<line x1="{margin_l}" y1="{margin_t}" x2="{margin_l}" y2="{margin_t+ch}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>'
+        grid += f'<line x1="{margin_l}" y1="{margin_t+ch}" x2="{margin_l+cw}" y2="{margin_t+ch}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>'
+        
+        # Axis labels
+        grid += f'<text x="{sw/2:.0f}" y="{sh-2:.0f}" fill="#556677" font-size="11" text-anchor="middle">Epoch</text>'
+        grid += f'<text x="12" y="{sh/2:.0f}" fill="#556677" font-size="11" text-anchor="middle" transform="rotate(-90,12,{sh/2:.0f})">{label}</text>'
+        
+        # Value label at end of curve
+        grid += f'<text x="{margin_l+cw-5}" y="{margin_t+15}" fill="{color}" font-size="10" text-anchor="end">{values[-1]:.4f}</text>'
+        
+        return f'''<svg width="100%" viewBox="0 0 {sw} {sh}" style="max-width:{sw}px;background:rgba(0,0,0,0.1);border-radius:8px;">
           {grid}
-          <polyline points="{poly}" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round"/>
-          <text x="{w-30}" y="15" fill="{color}" font-size="10">{label}: {values[-1]:.4f}</text>
+          <polyline points="{poly}" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>'''
 
     chart_sup = make_chart(sup_epochs, "re", "#22c55e", "RE (\u6709\u76D1\u7763)")
@@ -1081,6 +1145,85 @@ def generate_docs_view(file_path: str) -> str:
     return html
 
 
+def generate_datasets_page() -> str:
+    """生成训练数据集预览页"""
+    shapes_info = [
+        {'name': '单圆 (circle)', 'key': 'circle', 'desc': '随机位置 + 随机半径 0.8~3cm，25%占比'},
+        {'name': '椭圆 (ellipse)', 'key': 'ellipse', 'desc': '随机长/短轴 + 随机旋转角度，25%占比'},
+        {'name': '双圆 (double_circle)', 'key': 'double_circle', 'desc': '两个不重叠的圆，25%占比'},
+        {'name': '正方形 (square)', 'key': 'square', 'desc': '随机边长 + 随机旋转，25%占比'},
+    ]
+    
+    cards = ""
+    for si in shapes_info:
+        cards += f'''
+        <div class="ds-card">
+            <div class="ds-card-header">{si['name']}</div>
+            <p class="ds-card-desc">{si['desc']}</p>
+            <div class="ds-images">
+                <a href="/results/dataset_preview/{si['key']}_detail.png" target="_blank">
+                    <img src="/results/dataset_preview/{si['key']}_detail.png" 
+                         alt="{si['name']}" loading="lazy" class="ds-img">
+                </a>
+                <a href="/results/preview_shapes/{si['key']}_samples.png" target="_blank">
+                    <img src="/results/preview_shapes/{si['key']}_samples.png" 
+                         alt="{si['name']} samples" loading="lazy" class="ds-img">
+                </a>
+            </div>
+        </div>'''
+    
+    html = f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>训练数据集 - EIT</title>
+{BASE_STYLE}
+<style>
+.ds-card {{
+    background:rgba(15,23,42,0.8);border:1px solid rgba(59,130,246,0.12);
+    border-radius:14px;padding:20px;margin-bottom:20px;backdrop-filter:blur(10px);
+}}
+.ds-card-header {{ font-size:18px;font-weight:600;color:#d0d8e0;margin-bottom:6px; }}
+.ds-card-desc {{ font-size:13px;color:#8899aa;margin-bottom:14px; }}
+.ds-images {{ display:flex;gap:16px;overflow-x:auto; }}
+.ds-img {{ max-height:320px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);transition:transform 0.2s; }}
+.ds-img:hover {{ transform:scale(1.02);border-color:rgba(59,130,246,0.3); }}
+.ds-stats {{ display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px; }}
+.ds-stat {{ text-align:center;padding:16px;background:rgba(15,23,42,0.6);border:1px solid rgba(59,130,246,0.08);border-radius:12px; }}
+.ds-stat-value {{ font-size:24px;font-weight:700;color:#e0e8f0; }}
+.ds-stat-label {{ font-size:12px;color:#667788;margin-top:4px; }}
+@media (max-width:700px) {{ .ds-images {{ flex-direction:column; }} }}
+</style>
+</head>
+<body><div class="container">
+    <div class="navbar">
+        <div class="navbar-left">
+            <span class="logo-dot"></span>
+            <span class="navbar-title">EIT 训练数据集</span>
+        </div>
+        <div>
+            <a href="/" class="nav-back">&larr; 返回首页</a>
+        </div>
+    </div>
+
+    <div class="section-title"><h2>数据集概览</h2><div class="line"></div></div>
+    <div class="ds-stats">
+        <div class="ds-stat"><div class="ds-stat-value">20000</div><div class="ds-stat-label">训练样本</div></div>
+        <div class="ds-stat"><div class="ds-stat-value">500</div><div class="ds-stat-label">验证样本</div></div>
+        <div class="ds-stat"><div class="ds-stat-value">500</div><div class="ds-stat-label">测试样本</div></div>
+        <div class="ds-stat"><div class="ds-stat-value">4</div><div class="ds-stat-label">形状类型</div></div>
+        <div class="ds-stat"><div class="ds-stat-value">3−10x</div><div class="ds-stat-label">对比度范围</div></div>
+        <div class="ds-stat"><div class="ds-stat-value">50/50</div><div class="ds-stat-label">边缘/中心</div></div>
+    </div>
+
+    <div class="section-title"><h2>形状类型预览</h2><div class="line"></div></div>
+    <p style="color:#667788;font-size:13px;margin-bottom:16px;">
+        每行展示该形状的 <strong style="color:#94a3b8;">电导率分布 (Sigma)</strong> 和 <strong style="color:#94a3b8;">边界电压 (Voltage)</strong> (前2频率)。点击图片放大查看。
+    </p>
+    {cards}
+</div></body></html>'''
+    return html
+
+
 # ============ HTTP Handler ============
 
 class DynamicHandler(BaseHTTPRequestHandler):
@@ -1125,10 +1268,20 @@ class DynamicHandler(BaseHTTPRequestHandler):
                     self.send_error(404)
                     return
 
-        # /results/ -> EIT results
+        # /results/ -> EIT results (静态 HTML，和首页一样避免卡顿)
         if path == '/results/' or path == '/results':
-            html = generate_results_html()
-            self._send_html(html)
+            results_static = os.path.join(RESULTS_DIR, 'index.html')
+            if os.path.exists(results_static):
+                with open(results_static, 'rb') as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Content-Length', len(data))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                html = generate_results_html()
+                self._send_html(html)
             return
 
         # /docs-list/ -> 文档浏览器
@@ -1154,6 +1307,12 @@ class DynamicHandler(BaseHTTPRequestHandler):
                     self._send_html(html)
                     return
             self.send_error(404)
+            return
+
+        # /datasets/ -> 训练数据集预览
+        if path == '/datasets/' or path == '/datasets':
+            html = generate_datasets_page()
+            self._send_html(html)
             return
 
         # Static files
@@ -1200,8 +1359,11 @@ class DynamicHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', len(data))
-            if len(data) > 1024 * 1024:
+            # Cache images for 1 hour, HTML for 5 min
+            if content_type and 'image' in content_type:
                 self.send_header('Cache-Control', 'public, max-age=3600')
+            elif content_type and 'html' in content_type:
+                self.send_header('Cache-Control', 'public, max-age=300')
             self.end_headers()
             self.wfile.write(data)
             return
@@ -1233,7 +1395,7 @@ def main():
     args = parser.parse_args()
 
     print(f"EIT server starting on http://localhost:{args.port}")
-    server = HTTPServer((args.host, args.port), DynamicHandler)
+    server = ThreadingHTTPServer((args.host, args.port), DynamicHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

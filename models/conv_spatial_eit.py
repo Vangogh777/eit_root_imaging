@@ -177,6 +177,10 @@ class ConvSpatialEIT(nn.Module):
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
 
+        # 0. 多频融合层（6频 → 1频，自动学习权重）
+        self.freq_fusion = nn.Conv2d(in_channels=n_frequencies, out_channels=1,
+                                      kernel_size=1, bias=False)
+
         # 1. Conv Encoder（单频输入）
         self.encoder = ConvEncoder(in_channels=1, base_ch=48)
 
@@ -290,13 +294,12 @@ class ConvSpatialEIT(nn.Module):
         B = voltages.shape[0]
         device = voltages.device
 
-        # ── 单频处理（P0-1）──
+        # ── 多频融合 ──
         if voltages.dim() == 3:
-            # (B, 6, 208) → 取第一频率
-            x = voltages[:, :1, :].view(B, 1, 13, 16)
+            x = voltages.view(B, 6, 13, 16)
         else:
-            # (B, C, 13, 16) → 取第一通道
-            x = voltages[:, :1, :, :]
+            x = voltages  # (B, 6, 13, 16)
+        x = self.freq_fusion(x)  # (B, 1, 13, 16)
 
         # ── 输入归一化（P1-8）──
         amax = x.flatten(1).abs().max(dim=1)[0].view(B, 1, 1, 1) + 1e-8
