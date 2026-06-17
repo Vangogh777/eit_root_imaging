@@ -39,7 +39,8 @@ class MeasurementConsistencyLoss(nn.Module):
                  jacobian: Optional[torch.Tensor] = None,
                  forward_solver: Optional[Callable] = None,
                  sigma_ref_value: float = 0.01,
-                 fem_interval: int = 5):
+                 fem_interval: int = 5,
+                 fem_subset_size: int = 0):
         """
         参数:
             mode: 'jacobian' | 'full_fem' | 'hybrid'
@@ -47,6 +48,7 @@ class MeasurementConsistencyLoss(nn.Module):
             forward_solver: 正问题求解函数 (sigma_np) → (n_freq, n_meas) np数组
             sigma_ref_value: 参考电导率（土壤背景），默认 0.01 S/m
             fem_interval: 每 N 步执行一次完整 FEM（N=1 每步都跑，N=5 每5步跑一次）
+            fem_subset_size: >0 时每次 FEM 只算前 N 个样本（其余用雅可比近似），加速训练
         """
         super().__init__()
         assert mode in ('jacobian', 'full_fem', 'hybrid'), f"未知模式: {mode}"
@@ -54,6 +56,7 @@ class MeasurementConsistencyLoss(nn.Module):
         self.forward_solver = forward_solver
         self.sigma_ref_value = sigma_ref_value
         self.fem_interval = fem_interval
+        self.fem_subset_size = fem_subset_size
         self._fem_step = 0
         self._cached_V_full = None
         self._last_real_loss = 0.0
@@ -102,14 +105,15 @@ class MeasurementConsistencyLoss(nn.Module):
 
             if run_fem:
                 # 完整 FEM 求解 → 缓存 V_full
+                n_fem = min(B, self.fem_subset_size) if self.fem_subset_size > 0 else B
                 sigma_np = sigma_pred.detach().cpu().numpy()
                 V_full_list = []
-                for b in range(B):
+                for b in range(n_fem):
                     V_b = self.forward_solver(sigma_np[b])  # (n_freq, n_meas)
                     V_full_list.append(V_b.astype(np.float32))
                 self._cached_V_full = torch.from_numpy(np.stack(V_full_list)).to(device)
                 self._last_real_loss = F.mse_loss(
-                    self._cached_V_full, voltages_measured).item()
+                    self._cached_V_full, voltages_measured[:n_fem]).item()
 
             V_full = self._cached_V_full
 
@@ -117,8 +121,9 @@ class MeasurementConsistencyLoss(nn.Module):
             if self.jacobian is not None:
                 V_jac = self._jacobian_forward(sigma_pred, sigma_ref)  # 可微分
                 loss_main = F.mse_loss(V_jac, voltages_measured)
-                # 辅助：让 V_jac 匹配缓存的 V_full
-                loss_aux = F.mse_loss(V_jac, V_full.detach())
+                # 辅助：让 V_jac 匹配缓存的 V_full（只对 FEM 算过的子集做比较）
+                n_fem_cached = self._cached_V_full.shape[0]
+                loss_aux = F.mse_loss(V_jac[:n_fem_cached], self._cached_V_full.detach())
                 total_loss = loss_main + 0.1 * loss_aux
             else:
                 total_loss = F.mse_loss(V_full, voltages_measured)

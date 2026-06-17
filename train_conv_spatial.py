@@ -26,8 +26,9 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from models.conv_spatial_eit import ConvSpatialEIT
-from data.datasets.eit_dataset import EITDataset
+from data.datasets.eit_dataset import MemoryEITDataset
 from data.eit_forward import EITForwardSolver
+from training.recorder import TrainingRecorder
 
 
 def get_mesh_data(config_path):
@@ -86,8 +87,8 @@ def train():
             edge_threshold=getattr(args, 'edge_threshold', 0.05),
         )
 
-    train_ds = EITDataset(h5_path, split='train', voltage_mask_ratio=0.0)
-    val_ds = EITDataset(h5_path, split='val', voltage_mask_ratio=0.0)
+    train_ds = MemoryEITDataset(h5_path, split='train', voltage_mask_ratio=0.0)
+    val_ds = MemoryEITDataset(h5_path, split='val', voltage_mask_ratio=0.0)
     print(f"训练: {len(train_ds)}, 验证: {len(val_ds)}")
 
     # ── 分层采样器：每个 batch 一半边缘、一半中心 ──
@@ -106,12 +107,8 @@ def train():
             print("  计算样本边缘标签...")
             centers_np = centers  # (n_elems, 2)
 
-            # 直接从 HDF5 一次性加载所有 sigmas，避免 Dataset 逐个读取的开销
-            import h5py
-            h5_path = dataset.h5_path
-            split = dataset.split
-            with h5py.File(h5_path, 'r') as f:
-                all_sigmas = f[f'{split}/sigmas'][:]  # (n_samples, n_elems)
+            # 从 MemoryEITDataset 直接获取内存中的 sigmas
+            all_sigmas = dataset.sigmas  # (n_samples, n_elems), already in memory
 
             root_mask = all_sigmas > 0.015  # (n_samples, n_elems)
             n_root = root_mask.sum(axis=1)  # (n_samples,)
@@ -141,12 +138,10 @@ def train():
 
             for i in range(0, max(len(edge_idx), len(center_idx)),
                            max(n_edge_per, n_center_per)):
-                batch = np.concatenate([
-                    edge_idx[i % len(edge_idx):(i + n_edge_per) % len(edge_idx)],
-                    center_idx[i % len(center_idx):(i + n_center_per) % len(center_idx)],
-                ])
-                if len(batch) > self.batch_size:
-                    batch = batch[:self.batch_size]
+                # 使用 np.take(mode='wrap') 确保每批恰好取 n_edge_per + n_center_per 个元素
+                edge_batch = np.take(edge_idx, range(i, i + n_edge_per), mode='wrap')
+                center_batch = np.take(center_idx, range(i, i + n_center_per), mode='wrap')
+                batch = np.concatenate([edge_batch, center_batch])
                 yield batch
 
         def __len__(self):
@@ -158,9 +153,9 @@ def train():
         edge_threshold=getattr(args, 'edge_threshold', 0.05),
     )
     train_loader = DataLoader(train_ds, batch_sampler=sampler,
-                              num_workers=8, pin_memory=True)
+                              num_workers=0, pin_memory=False)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size,
-                            shuffle=False, num_workers=4, pin_memory=True)
+                            shuffle=False, num_workers=0, pin_memory=False)
 
     # ============ 2. 模型 ============
     model = ConvSpatialEIT(
@@ -168,11 +163,29 @@ def train():
         n_meas=208,
         n_elems=n_elems,
         hidden_dim=args.hidden_dim,
+        gnn_hidden=args.hidden_dim,  # 真正控制 GNN 容量
         gnn_layers=args.gnn_layers,
     )
     model.setup_mesh(centers, elements)  # 先建GNN，再移GPU
     model = model.to(device)
     print(f"参数量: {sum(p.numel() for p in model.parameters()):,}")
+
+    # 训练记录器
+    recorder = TrainingRecorder(
+        name=f"v2_{args.mode}_hd{args.hidden_dim}",
+    )
+    n_params = sum(p.numel() for p in model.parameters())
+    recorder.save_meta({
+        "hidden_dim": args.hidden_dim,
+        "gnn_hidden": args.hidden_dim,
+        "gnn_layers": args.gnn_layers,
+        "batch_size": args.batch_size,
+        "mode": args.mode,
+        "epochs_sup": args.epochs_sup,
+        "epochs_unsup": args.epochs_unsup,
+        "model_params": n_params,
+        "lr": args.lr,
+    })
     # torch.compile 暂不兼容(位置编码buffer跨设备问题), 后续适配
     # model = torch.compile(model)
 
@@ -255,12 +268,18 @@ def train():
 
             print(f"  Epoch {epoch:2d} | Loss: {epoch_loss/len(train_loader):.6f}"
                   f" | Val: {val_loss/len(val_loader):.6f} | RE: {re:.4f}")
+            recorder.log_epoch(phase="supervised", epoch=epoch,
+                               loss=epoch_loss/len(train_loader),
+                               val_loss=val_loss/len(val_loader),
+                               re=re.item())
 
             if re < best_re:
                 best_re = re
                 os.makedirs("checkpoints", exist_ok=True)
                 torch.save(model.state_dict(), "checkpoints/conv_spatial_best.pt")
                 print(f"  → 保存最佳模型 (RE={best_re:.4f})")
+                recorder.log_event("best_model_saved", re=best_re.item(),
+                                   path="checkpoints/conv_spatial_best.pt")
 
             if re < 0.03:
                 print(f"  ✓ 预训练收敛 (RE={re:.4f} < 0.03)")
@@ -294,11 +313,12 @@ def train():
 
         # 损失函数
         mcl = MeasurementConsistencyLoss(
-            mode='full_fem',
+            mode='full_fem',  # 完整FEM正解以提供准确物理约束
             jacobian=jacobian,
             sigma_ref_value=0.01,
             forward_solver=lambda s: solver.solve_multi_frequency(s),
-            fem_interval=5,
+            fem_interval=20,        # 每20步跑一次FEM
+            fem_subset_size=4,      # 每次FEM只算4个样本（加速关键）
         )
         tvl = TVRegularizationLoss(
             element_centers=torch.from_numpy(centers).float(),
@@ -337,6 +357,8 @@ def train():
 
             scheduler.step()
             print(f"  Unsup Epoch {epoch:2d} | Loss: {epoch_loss/len(train_loader):.4f}")
+            recorder.log_epoch(phase="unsupervised", epoch=epoch,
+                               loss=epoch_loss/len(train_loader))
 
             # 每 20 epoch 保存一次 checkpoint
             if epoch % 20 == 0:
@@ -349,9 +371,11 @@ def train():
                     'loss': epoch_loss / len(train_loader),
                     'n_elems': n_elems,
                     'hidden_dim': args.hidden_dim,
+                    'gnn_hidden': args.hidden_dim,
                     'gnn_layers': args.gnn_layers,
                 }, ckpt_path)
                 print(f"  → 已保存: {ckpt_path}")
+                recorder.log_event("checkpoint_saved", path=ckpt_path, epoch=epoch)
 
     # ============ 5. 保存最终模型 ============
     os.makedirs("checkpoints", exist_ok=True)
@@ -360,9 +384,12 @@ def train():
         'model': model.state_dict(),
         'n_elems': n_elems,
         'hidden_dim': args.hidden_dim,
+        'gnn_hidden': args.hidden_dim,
         'gnn_layers': args.gnn_layers,
     }, save_path)
     print(f"\n✅ 模型已保存: {save_path}")
+    recorder.log_event("training_completed", final_model=save_path)
+    recorder.set_status("completed")
 
 
 if __name__ == "__main__":
