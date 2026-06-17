@@ -800,10 +800,18 @@ def _simple_markdown(text: str) -> str:
         orig_line = line
 
         # Headers
+        is_header = False
         line = re.sub(r'^#### (.+)', r'<h4>\1</h4>', line)
         line = re.sub(r'^### (.+)', r'<h3>\1</h3>', line)
         line = re.sub(r'^## (.+)', r'<h2>\1</h2>', line)
         line = re.sub(r'^# (.+)', r'<h1>\1</h1>', line)
+        if line != orig_line and line.startswith('<h'):
+            is_header = True
+
+        # Blockquote
+        is_bq = line.startswith('> ')
+        if is_bq:
+            line = re.sub(r'^> (.+)', r'<blockquote style="border-left:3px solid #3b82f6;padding:8px 16px;margin:12px 0;color:#8899aa;background:rgba(59,130,246,0.04);border-radius:0 8px 8px 0;">\1</blockquote>', line)
 
         # Bold / Italic
         line = re.sub(r'\*\*\*(.+?)\*\*\*', r'<strong><em>\1</em></strong>', line)
@@ -820,25 +828,48 @@ def _simple_markdown(text: str) -> str:
         # List items
         if re.match(r'^\s*[-*+]\s', line):
             line = re.sub(r'^\s*[-*+]\s+(.+)', r'<li>\1</li>', line)
-            if not out or not out[-1].startswith('<ul>'):
+            # 检查是否已在 <ul> 中（从后往前找）
+            in_list = False
+            for j in range(len(out)-1, -1, -1):
+                if out[j].startswith('<ul'):
+                    in_list = True
+                    break
+                elif out[j].startswith('</ul') or out[j].startswith('<ol') or out[j].startswith('</ol'):
+                    break
+            if not in_list:
                 out.append('<ul style="padding-left:20px;">')
             out.append(line)
             i += 1
             continue
         elif re.match(r'^\s*\d+\.\s', line):
             line = re.sub(r'^\s*\d+\.\s+(.+)', r'<li>\1</li>', line)
-            if not out or not out[-1].startswith('<ol>'):
+            in_list = False
+            for j in range(len(out)-1, -1, -1):
+                if out[j].startswith('<ol'):
+                    in_list = True
+                    break
+                elif out[j].startswith('</ol') or out[j].startswith('<ul') or out[j].startswith('</ul'):
+                    break
+            if not in_list:
                 out.append('<ol style="padding-left:20px;">')
             out.append(line)
             i += 1
             continue
         else:
-            if out and (out[-1].startswith('<ul>') or out[-1].startswith('<ol>')):
-                out.append('</ul>' if out[-1].startswith('<ul>') else '</ol>')
+            # 关闭所有打开的列表（但不删除其中的 <li> 项）
+            if out and (out[-1].startswith('<li')):
+                # 找到最近的开列表标签并关闭
+                for j in range(len(out)-1, -1, -1):
+                    if out[j].startswith('<ul') or out[j].startswith('<ol'):
+                        out.append('</ul>' if out[j].startswith('<ul') else '</ol>')
+                        break
 
-        # Paragraph
+        # Paragraph — skip self-closing tags (headers, hrs, blockquotes, pre, tables)
         if line.strip():
-            out.append(f'<p style="margin:8px 0;">{line}</p>')
+            if is_header or is_bq or line.startswith('<hr') or line.startswith('<pre') or line.startswith('<table') or line.startswith('<blockquote'):
+                out.append(line)
+            else:
+                out.append(f'<p style="margin:8px 0;">{line}</p>')
         else:
             out.append('<br>')
         i += 1
@@ -847,6 +878,12 @@ def _simple_markdown(text: str) -> str:
         out.append('</table>')
     if in_code:
         out.append('</pre>')
+    # 清理文档末尾未关闭的列表
+    if out and out[-1].startswith('<li'):
+        for j in range(len(out)-1, -1, -1):
+            if out[j].startswith('<ul') or out[j].startswith('<ol'):
+                out.append('</ul>' if out[j].startswith('<ul') else '</ol>')
+                break
     return '\n'.join(out)
 
 
