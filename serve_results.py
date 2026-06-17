@@ -701,6 +701,349 @@ def generate_training_detail(run_id: str) -> str:
     return html
 
 
+# ============ 文档浏览 (Docs Viewer) ============
+
+def _get_docs_files():
+    """扫描 docs/ 目录，返回文件列表"""
+    files = []
+    for dirpath, dirnames, filenames in os.walk(DOCS_DIR):
+        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+        for fn in filenames:
+            if fn.startswith('.') or fn.endswith('.pyc'):
+                continue
+            fpath = os.path.join(dirpath, fn)
+            rel = os.path.relpath(fpath, DOCS_DIR)
+            stat = os.stat(fpath)
+            ext = os.path.splitext(fn)[1].lower()
+            icon = {'html': '\U0001F310', 'md': '\U0001F4DD', 'pdf': '\U0001F4C4',
+                    'png': '\U0001F5BC', 'jpg': '\U0001F5BC', 'py': '\U0001F4BB',
+                    'json': '\U0001F4CB', 'txt': '\U0001F4C3'}.get(ext, '\U0001F4C4')
+            mtype = {'html': 'HTML', 'md': 'Markdown', 'pdf': 'PDF',
+                     'png': 'Image', 'jpg': 'Image', 'py': 'Python'}.get(ext, ext[1:].upper())
+            files.append({
+                'name': fn,
+                'path': rel,
+                'url': f'/docs-view/?file={rel}',
+                'raw_url': f'/docs/{rel}',
+                'size': stat.st_size,
+                'mtime': stat.st_mtime,
+                'ext': ext,
+                'icon': icon,
+                'type': mtype,
+            })
+    # Sort by mtime descending
+    files.sort(key=lambda f: f['mtime'], reverse=True)
+    return files
+
+
+def _simple_markdown(text: str) -> str:
+    """极简 Markdown → HTML 转换"""
+    import re
+    lines = text.split('\n')
+    out = []
+    in_code = False
+    in_table = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        if line.startswith('```'):
+            if in_table:
+                out.append('</table>')
+                in_table = False
+            if in_code:
+                out.append('</pre>')
+                in_code = False
+            else:
+                out.append('<pre style="background:#111827;padding:12px;border-radius:8px;overflow-x:auto;font-size:13px;">')
+                in_code = True
+            i += 1
+            continue
+
+        if in_code:
+            out.append(line.replace('<', '&lt;').replace('>', '&gt;'))
+            i += 1
+            continue
+
+        # Tables: process BEFORE text formatting, use lookahead
+        is_table_line = line.strip().startswith('|') and '|' in line
+        if is_table_line:
+            cells = [c.strip() for c in line.split('|')[1:-1]]
+            if all(re.match(r'^[-:]+$', c) for c in cells):
+                i += 1
+                continue  # separator line
+            # Now apply formatting to cells
+            def fmt_cell(c):
+                c = re.sub(r'\*\*\*(.+?)\*\*\*', r'<strong><em>\1</em></strong>', c)
+                c = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', c)
+                c = re.sub(r'\*(.+?)\*', r'<em>\1</em>', c)
+                c = re.sub(r'`([^`]+)`', r'<code style="background:#1e293b;padding:1px 5px;border-radius:3px;color:#22c55e;">\1</code>', c)
+                return c
+            cells = [fmt_cell(c) for c in cells]
+            tag = 'th' if not in_table else 'td'
+            row = '<tr>' + ''.join(f'<{tag} style="border:1px solid rgba(255,255,255,0.1);padding:6px 12px;text-align:left;">{c}</{tag}>' for c in cells) + '</tr>'
+            if not in_table:
+                out.append('<table style="border-collapse:collapse;width:100%;margin:8px 0;">')
+                in_table = True
+            out.append(row)
+            # Check if next line is also table
+            if i+1 < len(lines) and not (lines[i+1].strip().startswith('|') and '|' in lines[i+1]):
+                out.append('</table>')
+                in_table = False
+            i += 1
+            continue
+        elif in_table:
+            out.append('</table>')
+            in_table = False
+
+        # Code blocks and headers AFTER table check
+        orig_line = line
+
+        # Headers
+        line = re.sub(r'^#### (.+)', r'<h4>\1</h4>', line)
+        line = re.sub(r'^### (.+)', r'<h3>\1</h3>', line)
+        line = re.sub(r'^## (.+)', r'<h2>\1</h2>', line)
+        line = re.sub(r'^# (.+)', r'<h1>\1</h1>', line)
+
+        # Bold / Italic
+        line = re.sub(r'\*\*\*(.+?)\*\*\*', r'<strong><em>\1</em></strong>', line)
+        line = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', line)
+        line = re.sub(r'\*(.+?)\*', r'<em>\1</em>', line)
+        line = re.sub(r'`([^`]+)`', r'<code style="background:#1e293b;padding:2px 6px;border-radius:4px;font-size:0.9em;">\1</code>', line)
+
+        # Links
+        line = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2" style="color:#60a5fa;">\1</a>', line)
+
+        # HR
+        line = re.sub(r'^---+$', '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.1);margin:16px 0;">', line)
+
+        # List items
+        if re.match(r'^\s*[-*+]\s', line):
+            line = re.sub(r'^\s*[-*+]\s+(.+)', r'<li>\1</li>', line)
+            if not out or not out[-1].startswith('<ul>'):
+                out.append('<ul style="padding-left:20px;">')
+            out.append(line)
+            i += 1
+            continue
+        elif re.match(r'^\s*\d+\.\s', line):
+            line = re.sub(r'^\s*\d+\.\s+(.+)', r'<li>\1</li>', line)
+            if not out or not out[-1].startswith('<ol>'):
+                out.append('<ol style="padding-left:20px;">')
+            out.append(line)
+            i += 1
+            continue
+        else:
+            if out and (out[-1].startswith('<ul>') or out[-1].startswith('<ol>')):
+                out.append('</ul>' if out[-1].startswith('<ul>') else '</ol>')
+
+        # Paragraph
+        if line.strip():
+            out.append(f'<p style="margin:8px 0;">{line}</p>')
+        else:
+            out.append('<br>')
+        i += 1
+
+    if in_table:
+        out.append('</table>')
+    if in_code:
+        out.append('</pre>')
+    return '\n'.join(out)
+
+
+def generate_docs_list(query: str = "", sort_by: str = "time") -> str:
+    """生成文档列表页"""
+    files = _get_docs_files()
+
+    # Filter
+    if query:
+        q = query.lower()
+        files = [f for f in files if q in f['name'].lower() or q in f['path'].lower()]
+
+    # Sort
+    if sort_by == 'name':
+        files.sort(key=lambda f: f['name'].lower())
+    else:
+        files.sort(key=lambda f: f['mtime'], reverse=True)
+
+    total = len(files)
+    now = dt.datetime.now().strftime('%Y-%m-%d %H:%M')
+
+    # File cards
+    cards = ""
+    for f in files:
+        mtime_str = dt.datetime.fromtimestamp(f['mtime']).strftime('%m-%d %H:%M')
+        size_str = format_size(f['size'])
+        is_md = f['ext'] == '.md'
+        is_viewable = f['ext'] in ('.md', '.html', '.pdf', '.png', '.jpg')
+        href = f['url'] if is_md else f['raw_url']
+        target = '' if is_md else ' target="_blank"'
+        cards += f'''
+        <a href="{href}"{target} style="text-decoration:none;display:block;">
+        <div class="doc-card">
+            <div class="doc-card-icon">{f['icon']}</div>
+            <div class="doc-card-info">
+                <div class="doc-card-name">{f['name']}</div>
+                <div class="doc-card-path">{f['path']}</div>
+            </div>
+            <div class="doc-card-meta">
+                <span class="doc-type">{f['type']}</span>
+                <span class="doc-size">{size_str}</span>
+                <span class="doc-time">{mtime_str}</span>
+            </div>
+        </div>
+        </a>'''
+
+    if not cards:
+        cards = '<div style="text-align:center;padding:60px;color:#667788;">未找到匹配文件</div>'
+
+    doc_list_style = '''
+<style>
+.doc-toolbar { display:flex;gap:12px;align-items:center;margin-bottom:24px;flex-wrap:wrap; }
+.doc-search { flex:1;min-width:200px;padding:10px 16px;background:rgba(15,23,42,0.9);border:1px solid rgba(59,130,246,0.2);border-radius:10px;color:#e0e8f0;font-size:14px;outline:none; }
+.doc-search::placeholder { color:#556677; }
+.doc-search:focus { border-color:rgba(59,130,246,0.5); }
+.doc-sort { padding:10px 16px;background:rgba(15,23,42,0.9);border:1px solid rgba(59,130,246,0.15);border-radius:10px;color:#94a3b8;font-size:13px;cursor:pointer;outline:none;white-space:nowrap; }
+.doc-sort:hover { border-color:rgba(59,130,246,0.3); }
+.doc-sort option { background:#0f172a;color:#e0e8f0; }
+.doc-card { display:flex;align-items:center;gap:14px;padding:14px 18px;margin-bottom:6px;background:rgba(15,23,42,0.6);border:1px solid rgba(59,130,246,0.06);border-radius:12px;transition:all 0.2s; }
+.doc-card:hover { background:rgba(15,23,42,0.9);border-color:rgba(59,130,246,0.25);transform:translateX(2px); }
+.doc-card-icon { font-size:24px;flex-shrink:0;width:36px;text-align:center; }
+.doc-card-info { flex:1;min-width:0; }
+.doc-card-name { font-size:14px;font-weight:600;color:#d0d8e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.doc-card-path { font-size:11px;color:#556677;margin-top:2px; }
+.doc-card-meta { display:flex;gap:12px;align-items:center;flex-shrink:0;font-size:11px;color:#667788; }
+.doc-type { padding:2px 8px;border-radius:6px;background:rgba(59,130,246,0.08);color:#60a5fa; }
+.doc-size { color:#556677; }
+.doc-time { color:#445566;min-width:80px;text-align:right; }
+@media (max-width:600px) {
+    .doc-card-meta { display:none; }
+    .doc-toolbar { flex-direction:column; }
+}
+</style>'''
+
+    html = f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>研究文档 - EIT</title>
+{BASE_STYLE}
+{doc_list_style}
+</head>
+<body><div class="container">
+    <div class="navbar">
+        <div class="navbar-left">
+            <span class="logo-dot"></span>
+            <span class="navbar-title">EIT 研究文档</span>
+        </div>
+        <div>
+            <a href="/" class="nav-back">&larr; 返回首页</a>
+            <span class="navbar-badge" style="margin-left:8px;">{total} 个文件</span>
+        </div>
+    </div>
+
+    <div class="doc-toolbar">
+        <input type="text" class="doc-search" id="search" placeholder="搜索文件名..."
+               value="{query}" oninput="filterDocs()">
+        <select class="doc-sort" id="sort" onchange="filterDocs()">
+            <option value="time" {'selected' if sort_by=='time' else ''}>按时间排序</option>
+            <option value="name" {'selected' if sort_by=='name' else ''}>按名称排序</option>
+        </select>
+    </div>
+
+    <div id="doc-list">
+        {cards}
+    </div>
+
+    <div style="text-align:center;padding:30px;color:#556677;font-size:12px;">
+        &copy; EIT 研究项目 &middot; {now}
+    </div>
+</div>
+<script>
+function filterDocs() {{
+    var q = document.getElementById('search').value;
+    var s = document.getElementById('sort').value;
+    window.location.href = '/docs-list/?q=' + encodeURIComponent(q) + '&sort=' + s;
+}}
+document.getElementById('search').addEventListener('keydown', function(e) {{
+    if (e.key === 'Enter') filterDocs();
+}});
+</script>
+</body></html>'''
+    return html
+
+
+def generate_docs_view(file_path: str) -> str:
+    """生成文档查看页（Markdown 渲染）"""
+    full_path = os.path.join(DOCS_DIR, file_path)
+    full_path = os.path.normpath(full_path)
+    # Security check
+    if not os.path.realpath(full_path).startswith(os.path.realpath(DOCS_DIR)):
+        return None
+    if not os.path.exists(full_path):
+        return None
+
+    with open(full_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    html_body = _simple_markdown(content)
+    fname = os.path.basename(file_path)
+    mtime = dt.datetime.fromtimestamp(os.path.getmtime(full_path)).strftime('%Y-%m-%d %H:%M')
+
+    view_style = '''
+<style>
+.doc-content { max-width:860px;margin:0 auto;padding:20px; }
+.doc-content h1 { font-size:26px;font-weight:700;color:#e0e8f0;margin:28px 0 16px;border-bottom:1px solid rgba(59,130,246,0.2);padding-bottom:10px; }
+.doc-content h2 { font-size:20px;font-weight:600;color:#d0d8e0;margin:24px 0 12px; }
+.doc-content h3 { font-size:17px;font-weight:600;color:#c8d0d8;margin:20px 0 10px; }
+.doc-content h4 { font-size:15px;font-weight:600;color:#b8c0c8;margin:16px 0 8px; }
+.doc-content p { margin:8px 0;line-height:1.7;color:#94a3b8; }
+.doc-content a { color:#60a5fa;text-decoration:none; }
+.doc-content a:hover { text-decoration:underline; }
+.doc-content ul, .doc-content ol { padding-left:24px;margin:8px 0;color:#94a3b8; }
+.doc-content li { margin:4px 0; }
+.doc-content strong { color:#e0e8f0; }
+.doc-content code { background:#1e293b;padding:2px 6px;border-radius:4px;font-size:0.9em;color:#22c55e; }
+.doc-content pre { background:#111827;padding:14px 18px;border-radius:10px;overflow-x:auto;font-size:13px;margin:12px 0;border:1px solid rgba(255,255,255,0.06); }
+.doc-content table { border-collapse:collapse;width:100%;margin:12px 0; }
+.doc-content th, .doc-content td { border:1px solid rgba(255,255,255,0.1);padding:8px 14px;text-align:left;font-size:13px; }
+.doc-content th { background:rgba(59,130,246,0.08);font-weight:600;color:#d0d8e0; }
+.doc-content td { color:#94a3b8; }
+.doc-content em { color:#c8d0d8; }
+.doc-content hr { border:none;border-top:1px solid rgba(255,255,255,0.08);margin:20px 0; }
+.doc-content blockquote { border-left:3px solid #3b82f6;padding:8px 16px;margin:12px 0;color:#8899aa;background:rgba(59,130,246,0.04);border-radius:0 8px 8px 0; }
+</style>'''
+
+    html = f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{fname} - EIT 文档</title>
+{BASE_STYLE}
+{view_style}
+</head>
+<body><div class="container">
+    <div class="navbar">
+        <div class="navbar-left">
+            <span class="logo-dot"></span>
+            <span class="navbar-title">EIT 研究文档</span>
+        </div>
+        <div>
+            <a href="/docs-list/" class="nav-back">&larr; 文档列表</a>
+            <a href="/" class="nav-back" style="margin-left:6px;">&larr; 首页</a>
+            <span class="navbar-badge" style="margin-left:8px;">{mtime}</span>
+        </div>
+    </div>
+
+    <div class="section-title">
+        <h2>{fname}</h2>
+        <div class="line"></div>
+    </div>
+
+    <div class="doc-content">
+        {html_body}
+    </div>
+</div></body></html>'''
+    return html
+
+
 # ============ HTTP Handler ============
 
 class DynamicHandler(BaseHTTPRequestHandler):
@@ -749,6 +1092,31 @@ class DynamicHandler(BaseHTTPRequestHandler):
         if path == '/results/' or path == '/results':
             html = generate_results_html()
             self._send_html(html)
+            return
+
+        # /docs-list/ -> 文档浏览器
+        if path.startswith('/docs-list'):
+            parsed_qs = urlparse(self.path).query if '?' in self.path else ''
+            import urllib.parse
+            params = urllib.parse.parse_qs(parsed_qs) if parsed_qs else {}
+            query = params.get('q', [''])[0]
+            sort_by = params.get('sort', ['time'])[0]
+            html = generate_docs_list(query=query, sort_by=sort_by)
+            self._send_html(html)
+            return
+
+        # /docs-view/ -> Markdown 文档查看
+        if path.startswith('/docs-view/'):
+            parsed_qs = urlparse(self.path).query if '?' in self.path else ''
+            import urllib.parse
+            params = urllib.parse.parse_qs(parsed_qs) if parsed_qs else {}
+            file_path = params.get('file', [''])[0]
+            if file_path:
+                html = generate_docs_view(file_path)
+                if html:
+                    self._send_html(html)
+                    return
+            self.send_error(404)
             return
 
         # Static files
