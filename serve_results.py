@@ -11,7 +11,7 @@ EIT 结果动态展示服务器
 （远程服务器需 SSH 端口转发: ssh -L 8080:localhost:8080 ubuntu@<IP>）
 """
 
-import os, sys, json, glob, argparse, importlib.util
+import os, sys, json, glob, argparse, importlib.util, subprocess
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 
@@ -1228,6 +1228,41 @@ def generate_datasets_page() -> str:
 
 class DynamicHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        # /api/git-pull -> execute git pull and return result
+        if path == '/api/git-pull':
+            try:
+                result = subprocess.run(
+                    ['git', 'pull'],
+                    cwd=os.path.dirname(os.path.abspath(__file__)),
+                    capture_output=True, text=True, timeout=30
+                )
+                success = result.returncode == 0
+                output = result.stdout + result.stderr
+                if len(output) > 2000:
+                    output = output[:2000] + '
+...(truncated)'
+                data = json.dumps({
+                    'success': success,
+                    'output': output.strip(),
+                    'returncode': result.returncode,
+                }).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', len(data))
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                data = json.dumps({
+                    'success': False,
+                    'output': f'Error: {str(e)}',
+                }).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', len(data))
+                self.end_headers()
+                self.wfile.write(data)
+            return
+
         parsed = urlparse(self.path)
         path = parsed.path
 

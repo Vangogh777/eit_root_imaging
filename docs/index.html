@@ -390,6 +390,7 @@ body::after {
             <span class="navbar-title">EIT 研究展示</span>
         </div>
         <span class="navbar-badge">2026 · v2.0</span>
+            <span class="navbar-badge" style="cursor:pointer;user-select:none;" onclick="gitPull()" id="git-pull-btn">⬇ Git Pull</span>
     </nav>
 
     <!-- ===== Hero ===== -->
@@ -639,5 +640,92 @@ document.addEventListener("keydown",function(ev){if(!document.getElementById("lb
 document.addEventListener("click",function(ev){var a=ev.target.closest("a");if(!a)return;var h=a.getAttribute("href");if(!h)return;if(/\.(png|jpg|jpeg|gif|svg|webp)(\?|$)/i.test(h)){ev.preventDefault();var t=a.querySelector("h4,h3")||a.querySelector("[class*=\"title\"]");_lbopen(h,t?t.textContent:"");}});
 var bt=document.createElement("div");bt.className="back-to-top";bt.innerHTML="\u2191";bt.title="\u56de\u5230\u9876\u90e8";bt.addEventListener("click",function(){window.scrollTo({top:0,behavior:"smooth"});});document.body.appendChild(bt);window.addEventListener("scroll",function(){bt.style.display=window.scrollY>400?"flex":"none";});
 </script>
+
+<script>
+async function gitPull() {
+    const btn = document.getElementById('git-pull-btn');
+    const origText = btn.textContent;
+    btn.textContent = '⏳ Pulling...';
+    btn.style.pointerEvents = 'none';
+    btn.style.opacity = '0.6';
+    
+    try {
+        const resp = await fetch('/api/git-pull');
+        const data = await resp.json();
+        
+        if (data.success) {
+            btn.textContent = '✅ Pull OK';
+            btn.style.background = 'rgba(34,197,94,0.15)';
+            btn.style.borderColor = 'rgba(34,197,94,0.3)';
+            btn.style.color = '#22c55e';
+        } else {
+            btn.textContent = '❌ Pull Failed';
+            btn.style.background = 'rgba(239,68,68,0.15)';
+            btn.style.borderColor = 'rgba(239,68,68,0.3)';
+            btn.style.color = '#ef4444';
+        }
+        
+        showPullToast(data.output);
+        
+        setTimeout(() => {
+            btn.textContent = origText;
+            btn.style.background = '';
+            btn.style.borderColor = '';
+            btn.style.color = '';
+            btn.style.pointerEvents = 'auto';
+            btn.style.opacity = '1';
+        }, 4000);
+    } catch (err) {
+        btn.textContent = '❌ Error';
+        btn.style.background = 'rgba(239,68,68,0.15)';
+        btn.style.borderColor = 'rgba(239,68,68,0.3)';
+        btn.style.color = '#ef4444';
+        setTimeout(() => {
+            btn.textContent = origText;
+            btn.style.background = '';
+            btn.style.borderColor = '';
+            btn.style.color = '';
+            btn.style.pointerEvents = 'auto';
+            btn.style.opacity = '1';
+        }, 4000);
+    }
+}
+
+function showPullToast(output) {
+    const old = document.querySelector('.git-toast');
+    if (old) old.remove();
+    
+    const toast = document.createElement('div');
+    toast.className = 'git-toast';
+    toast.innerHTML = '<div style="font-size:12px;font-weight:600;margin-bottom:4px;color:#e0e8f0;">Git Pull Output</div>'
+        + '<pre style="font-size:11px;line-height:1.4;margin:0;white-space:pre-wrap;max-height:200px;overflow-y:auto;color:#94a3b8;">'
+        + output.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        + '</pre>'
+        + '<div style="font-size:11px;margin-top:6px;color:#667788;">Click anywhere to close</div>';
+    
+    Object.assign(toast.style, {
+        position: 'fixed', bottom: '80px', right: '24px',
+        background: 'rgba(15,23,42,0.96)', border: '1px solid rgba(59,130,246,0.3)',
+        borderRadius: '12px', padding: '16px 20px',
+        maxWidth: '480px', maxHeight: '320px',
+        color: '#94a3b8', zIndex: '10001',
+        backdropFilter: 'blur(10px)',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+        cursor: 'pointer',
+        animation: 'toastIn 0.2s ease',
+    });
+    toast.onclick = () => toast.remove();
+    document.body.appendChild(toast);
+    
+    setTimeout(() => { if (document.body.contains(toast)) toast.remove(); }, 10000);
+}
+</script>
+<style>
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+
 </body>
 </html>
