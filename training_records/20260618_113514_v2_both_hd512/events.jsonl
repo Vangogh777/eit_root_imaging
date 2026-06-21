@@ -1,0 +1,4 @@
+{"event": "best_model_saved", "time": "2026-06-18T11:42:20.694021", "re": 0.30732160806655884, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-18T12:03:31.516686", "re": 0.3067270815372467, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-18T12:17:38.514599", "re": 0.30475181341171265, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-18T13:28:09.539739", "re": 0.3031700551509857, "path": "checkpoints/conv_spatial_best.pt"}

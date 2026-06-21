@@ -1,12 +1,12 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to Reasonix/Codex when working with code in this repository.
 
 ## Project Overview
 
-EIT (Electrical Impedance Tomography) plant root unsupervised imaging system using pyEIT + PyTorch. This is a **桶式 (bucket-type) 2D EIT system** for imaging plant roots in cylindrical containers with a single ring of 16 electrodes.
+EIT (Electrical Impedance Tomography) plant root unsupervised imaging system using pyEIT + PyTorch. **桶式 (bucket-type) 2D EIT system** with a single ring of 16 electrodes around a cylindrical container (~20cm diameter), multi-frequency measurements (6 frequencies: 1kHz-500kHz).
 
-**Hardware context**: Cylindrical bucket (~20cm diameter), single ring of 16 electrodes, 2D cross-sectional imaging with multi-frequency measurements (6 frequencies: 1kHz-500kHz).
+**Stack**: Python, PyTorch, pyEIT (FEM forward solver), HDF5, ONNX, wandb, TensorBoard.
 
 ## Commands
 
@@ -16,44 +16,48 @@ cd eit_root_imaging
 pip install -r requirements.txt
 ```
 
-### Testing
+### Quick Validation
 ```bash
-# Quick pipeline validation (data generation → model → forward pass)
-python test_minimal.py
+python test_minimal.py              # Data gen → model → forward pass
 ```
 
-### Training
+### Training (Entry Points)
 ```bash
-# Standard training (auto-generates data on first run)
-python train.py
+python train.py                     # Default: SFSBLC model (auto-generates data on first run)
+python train.py --generate          # Force regenerate data
+python train.py --resume <ckpt>     # Resume from checkpoint
 
-# Subsequent runs (reuses existing data)
-python train.py --epochs 300 --batch_size 64
+python train_conv_spatial.py        # Two-stage: supervised pretrain + unsupervised finetune
+python train_conv_spatial.py --epochs_sup 50 --epochs_unsup 200
 
-# Force regenerate data
-python train.py --generate
+python train_two_stage.py           # Traditional inversion → neural refinement
+python train_two_stage.py --refine_type unet --wandb
 
-# Resume from checkpoint
-python train.py --resume checkpoints/eit_20260610/checkpoint_epoch_50.pt
+python train_pyeidors.py            # Train using PyEIDORS-generated data (MATLAB bridge)
 
-# M1 Mac optimized training (uses MPS acceleration)
-python train_m1.py
-python train_m1.py --quick              # Quick test: 100 samples, 10 epochs
+python train_m1.py                  # M1 Mac optimized (MPS acceleration)
+python train_m1.py --quick          # Quick test: 100 samples, 10 epochs
 
-# GPU server training
-python train_server.py
-python train_server.py --n_train 20000 --model physics  # Physics-informed model
+python train_server.py              # GPU server training with multiple model choices
+python train_server.py --n_train 20000 --model physics
+
+python run_all.sh                   # Run two Conv-Spatial training rounds sequentially
 ```
 
-### Evaluation
+### Evaluation & Visualization
 ```bash
-python evaluation/evaluate.py --checkpoint checkpoints/...pt --split test
+python evaluation/evaluate.py --checkpoint <ckpt> --split test
+python evaluation/validate.py --checkpoint <ckpt>
+python evaluation/validate_conv_spatial.py --checkpoint <ckpt>
+python evaluate_conv_spatial.py     # Conv-spatial specific evaluation
+python evaluate_conv_spatial_full.py
+python visualize_results.py         # Visualize reconstructions (uses default or --model)
 ```
 
-### Visualization
+### Results Server
 ```bash
-python visualize_results.py                    # Use default model
-python visualize_results.py --model xxx.pt    # Specify model checkpoint
+python serve_results.py             # HTTP server on :8080 (live-updating results page)
+python serve_results.py --port 80   # Production via systemd (eit-server.service)
 ```
 
 ### Inference
@@ -65,92 +69,83 @@ sigma = engine(voltages)  # voltages: (n_freq, n_meas) → sigma: (n_elems,)
 
 ## Architecture
 
-### Core Model: SF-SBLC (Spatial-Frequency Shared and Base Layer Correction)
+### Core Model Families
 
-The main model (`models/sf_sblc.py`) combines four components:
-1. **SharedEncoder** - Multi-frequency shared encoding
-2. **BaseLayerCorrection (BLC)** - Suppresses system artifacts
-3. **FrequencyFusionDecoder** - Fuses multi-frequency features
-4. **ResNetBackbone** - Deep residual reconstruction
-
-**Data flow**:
-```
-Voltages (B, n_freq, n_meas) → SharedEncoder → BLC → FusionDecoder → ResNetBackbone → Sigma (B, n_elems)
-```
-
-**Variants**:
-- `SFSBLC` - Full model with all components
-- `SFSBLC_Light` - Lightweight version for quick prototyping (fewer parameters)
-- `PhysicsInformedEIT` - Physics-informed model with PDE constraints (in `models/universal_eit.py`)
+| Model | File | Description |
+|-------|------|-------------|
+| **SF-SBLC** (`SFSBLC`) | `models/sf_sblc.py` | Spatial-Frequency Shared + Base Layer Correction — the original model. SharedEncoder → BLC → FusionDecoder → ResNetBackbone |
+| **ConvSpatialEIT** | `models/conv_spatial_eit.py` | Convolutional spatial model with two-stage (supervised+unsupervised) training |
+| **TwoStageEITModel** | `models/two_stage_model.py` | Traditional inversion (GN/GREIT) → neural refinement (UNet/Graph) |
+| **PhysicsInformedEIT** | `models/universal_eit.py` | Physics-informed with PDE constraints |
+| **EITModelGNN** | `models/eit_gnn_model.py` | Graph Neural Network on FEM mesh |
+| **ImprovedEITModelGNN** | `models/improved_gnn_model.py` | Enhanced GNN with attention |
+| **SimpleSFSBLC** | `models/simple_model.py` | Lightweight for quick tests |
+| **LinearEITModel / DeepEITModel** | `models/linear_model.py` | Linear/deep baselines |
+| **PhysicsGNN** | `models/physics_gnn.py` | Physics-constrained GNN |
 
 ### Unsupervised Training Philosophy
 
-This system uses **physics-constrained unsupervised learning** - no ground truth σ is used as supervision during training:
+Physics-constrained unsupervised learning — no ground truth σ used as supervision. Core loss:
 
-**Loss function**: `L_total = λ_m * L_meas + λ_tv * L_tv + λ_freq * L_freq + λ_blc * L_blc + λ_smooth * L_smooth`
+`L_total = λ_m * L_meas + λ_tv * L_tv + λ_freq * L_freq + λ_blc * L_blc + λ_smooth * L_smooth + λ_dev * L_dev`
 
 | Loss | Purpose |
 |------|---------|
-| `L_meas` | Measurement consistency: `‖F(σ_pred) - V_measured‖²` (core physics constraint) |
-| `L_tv` | Total variation regularization (suppresses artifacts, preserves edges) |
-| `L_freq` | Frequency cross-consistency (multi-frequency structure agreement) |
-| `L_blc` | BLC correction constraint (prevents over-correction) |
-| `L_smooth` | Spatial smoothness (physical plausibility) |
+| `L_meas` | Measurement consistency: `‖F(σ_pred) - V_measured‖²` (core physics) |
+| `L_tv` | Total variation (edge-preserving regularization) |
+| `L_freq` | Frequency cross-consistency |
+| `L_blc` | BLC correction constraint |
+| `L_smooth` | Spatial smoothness |
+| `L_dev` | Sigma deviation penalty (keeps σ near Jacobian linearization point) |
 
-The measurement consistency loss uses either:
-- **Jacobian linear approximation** (fast, for training): `V_pred ≈ J · (σ_pred - σ_ref)`
-- **Full pyEIT forward solver** (accurate, for validation)
+Measurement consistency uses either **Jacobian linear approximation** (fast) or **full FEM** (accurate, via pyEIT).
 
-### Key Modules
-
-| Module | Purpose |
-|--------|---------|
-| `data/eit_forward.py` | pyEIT FEM forward solver, multi-frequency simulation |
-| `data/root_simulator.py` | Random root structure generation (taproot/fibrous/herringbone) |
-| `data/generate_dataset.py` | Generates HDF5 datasets with simulated measurements |
-| `training/unsupervised_loop.py` | Main training loop with physics-constrained losses |
-| `training/loss.py` | Core loss functions (measurement consistency, TV, frequency cross-consistency, etc.) |
-| `training/precision_loss.py` | Precision-aware loss functions for improved reconstruction accuracy |
-| `inference/inference.py` | Production inference engine |
-| `inference/onnx_export.py` | ONNX export for deployment |
-| `models/universal_eit.py` | Universal phantom generator and physics-informed model |
-
-### Configuration
-
-- `config/mesh_config.yaml`: Mesh (radius=10cm, resolution=5mm), electrodes (16), stimulation frequencies (6), conductivity values (soil=0.01 S/m, root=0.05 S/m)
-- `config/train_config.yaml`: Model hyperparameters, training settings, loss weights
+### Training Variants
+- **train.py**: E2E unsupervised (original SFSBLC pipeline)
+- **train_conv_spatial.py**: Two-stage — first supervised MSE on paired data, then unsupervised physics finetune
+- **train_two_stage.py**: Two-stage — traditional inversion (GN/GREIT) as first pass, neural refinement second
+- **train_pyeidors.py**: Uses data from MATLAB PyEIDORS pipeline
 
 ### Data Pipeline
+1. `data/generate_dataset.py` — Random root structures → pyEIT forward → HDF5 (`data/generated/eit_dataset.h5`)
+2. `data/generate_mixed_dataset.py` — Multiple root types (taproot/fibrous/herringbone) in one HDF5
+3. `data/precompute_jacobian.py` — Sensitivity matrix (`data/generated/jacobian.npy`)
+4. `data/generate_circle_dataset.py` / `generate_square_dataset.py` — Alternative domain shapes
+5. `data/datasets/eit_dataset.py` — PyTorch Dataset/DataLoader (`MemoryEITDataset`, `EITDataset`)
+6. `data/pyeidors_generate_data.py` / `data/pyeidors_data_generator.py` — MATLAB-bridge data generation
 
-1. **Dataset generation** (`data/generate_dataset.py`):
-   - Creates random root structures via `RootSystemGenerator`
-   - Runs pyEIT forward simulation to get boundary voltages
-   - Stores in HDF5 format: `data/generated/eit_dataset.h5`
+### Training Records & Results Server
+- **TrainingRecorder** (`training/recorder.py`): Logs each run's config, per-epoch metrics, events to `training_records/{run_id}/`
+- **serve_results.py**: HTTP server that scans `results/` and `training_records/` for live web display
+- **eit-server.service**: systemd unit for production deployment on port 80
 
-2. **Jacobian precomputation** (`data/precompute_jacobian.py`):
-   - Precomputes sensitivity matrix for fast training
-   - Output: `data/generated/jacobian.npy`
-
-3. **EITDataset** (`data/datasets/eit_dataset.py`):
-   - PyTorch Dataset/DataLoader for HDF5 files
-   - Handles train/val/test splits
+### Configuration
+- `config/mesh_config.yaml`: Mesh geometry (radius=0.10m, mesh_resolution=0.0025, n_elems~11466 for h0=2.5mm), 16 electrodes, 6 frequencies
+- `config/train_config.yaml`: Model hyperparams (n_elems=4424, hidden_dim=512, n_res_blocks=8), loss weights, data paths
+- `config/pyeidors_train_config.yaml`: PyEIDORS-specific config
 
 ### Mesh Structure
-
 - 2D circular domain (bucket cross-section)
-- ~1500 triangular elements, ~800 nodes
+- Configurable resolution: `mesh_resolution: 0.0025` → ~11466 elements; `h0: 0.004` (in train_config) → 4424 elements
 - Element centers used for spatial operations (TV regularization, visualization)
 
 ### Evaluation Metrics
-
 - **RE**: Relative error `‖pred - target‖ / ‖target‖`
 - **CC**: Correlation coefficient
-- **SSIM**: Structural similarity (computed on mesh-interpolated images)
+- **SSIM**: Structural similarity (mesh-interpolated images)
+
+## Dependencies (core)
+`torch`, `torchvision`, `numpy`, `scipy`, `pyEIT`, `matplotlib`, `meshio`, `tensorboard`, `tqdm`, `pyyaml`, `wandb`, `scikit-image`, `pandas`, `h5py`, `onnx`, `onnxruntime`
 
 ## Important Patterns
 
 - All paths in configs are relative to `eit_root_imaging/` directory
-- The `train.py` entry point handles data generation automatically - data is only generated once
-- Checkpoints saved to `checkpoints/eit_{date}/`
-- TensorBoard logging enabled by default
-- Model outputs include interpretable intermediate results: `base_map`, `freq_weights`, `blc_gates`
+- The `train.py` entry point auto-generates data only on first run (checks `data/generated/eit_dataset.h5`)
+- Checkpoints saved to `checkpoints/` with naming like `conv_spatial_best.pt`, `two_stage_model.pt`
+- Training records stored in `training_records/` with `index.json` as catalog
+- Wandb logging available via `--wandb` flag; TensorBoard by default
+- `serve_results.py` is the live results dashboard — deploy with `eit-server.service`
+- Model outputs may include interpretable intermediates: `base_map`, `freq_weights`, `blc_gates`
+- Mesh resolution differs between configs: `mesh_config.yaml` (h0=0.0025 → ~11466 cells) vs `train_config.yaml` (n_elems=4424, corresponding to h0=0.004)
+
+## Notes

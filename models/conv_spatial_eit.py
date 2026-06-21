@@ -117,9 +117,19 @@ class GridSampler(nn.Module):
 
 
 class SimpleGNNLayer(nn.Module):
-    """图卷积层（稀疏边列表 + MLP 更新，内存高效）"""
-    def __init__(self, in_dim: int, out_dim: int, dropout: float = 0.1):
+    """图卷积层（稀疏边列表 + MLP 更新，内存高效）
+    Phase 1 升级: 支持边特征 (edge_feat) 输入
+    """
+    def __init__(self, in_dim: int, out_dim: int, dropout: float = 0.1,
+                 edge_dim: int = 0):
         super().__init__()
+        self.edge_dim = edge_dim
+        if edge_dim > 0:
+            self.edge_net = nn.Sequential(
+                nn.Linear(edge_dim, out_dim),
+                nn.GELU(),
+                nn.LayerNorm(out_dim),
+            )
         self.mlp = nn.Sequential(
             nn.Linear(in_dim * 2, out_dim),
             nn.LayerNorm(out_dim),
@@ -129,7 +139,7 @@ class SimpleGNNLayer(nn.Module):
             nn.LayerNorm(out_dim),
         )
 
-    def forward(self, x, edge_idx, edge_weight):
+    def forward(self, x, edge_idx, edge_weight, edge_feat=None):
         B, N, D = x.shape
         n_edges = edge_idx.shape[1]
         device = x.device
@@ -138,13 +148,26 @@ class SimpleGNNLayer(nn.Module):
 
         chunk_size = 20000
         x_agg = torch.zeros(B, N, D, device=device)
-        for start in range(0, n_edges, chunk_size):
-            end = min(start + chunk_size, n_edges)
-            s, d, ww = src[start:end], dst[start:end], w[start:end]
-            x_src = x[:, s]
-            x_agg.scatter_add_(1,
-                d.view(1, -1, 1).expand(B, -1, D),
-                x_src * ww.view(1, -1, 1))
+        if self.edge_dim > 0 and edge_feat is not None:
+            # 边特征编码: (n_edges, edge_dim) → (n_edges,)
+            e_score = self.edge_net(edge_feat).sum(dim=-1)  # (n_edges,)
+            for start in range(0, n_edges, chunk_size):
+                end = min(start + chunk_size, n_edges)
+                s, d = src[start:end], dst[start:end]
+                # 边特征调制权重: w * sigmoid(edge_score)
+                ew = w[start:end] * torch.sigmoid(e_score[start:end])
+                x_src = x[:, s]
+                x_agg.scatter_add_(1,
+                    d.view(1, -1, 1).expand(B, -1, D),
+                    x_src * ew.view(1, -1, 1))
+        else:
+            for start in range(0, n_edges, chunk_size):
+                end = min(start + chunk_size, n_edges)
+                s, d, ww = src[start:end], dst[start:end], w[start:end]
+                x_src = x[:, s]
+                x_agg.scatter_add_(1,
+                    d.view(1, -1, 1).expand(B, -1, D),
+                    x_src * ww.view(1, -1, 1))
 
         h = torch.cat([x, x_agg], dim=-1)
         h = self.mlp(h.view(B * N, -1)).view(B, N, -1)
@@ -207,13 +230,17 @@ class ConvSpatialEIT(nn.Module):
         self._edge_idx = None
         self._edge_weight = None
 
-    def setup_mesh(self, centers: np.ndarray, elements: np.ndarray):
+    def setup_mesh(self, centers: np.ndarray, elements: np.ndarray,
+                   jacobian: Optional[np.ndarray] = None,
+                   sigma_ref: float = 0.01):
         """
-        设置网格结构 + 位置编码
+        设置网格结构 + 位置编码 + Jacobian (Phase 1)
 
         参数:
             centers:  (n_elems, 2) 单元中心坐标
             elements: (n_elems, 3) 单元节点索引
+            jacobian: (n_meas, n_elems) 灵敏度矩阵 (可选)
+            sigma_ref: 参考电导率 (用于线性化)
         """
         # ── Grid Sampling 坐标 ──
         self.sampler.setup_grid(centers)
@@ -245,6 +272,31 @@ class ConvSpatialEIT(nn.Module):
         self._edge_idx = torch.from_numpy(edge_list).long()
         self._edge_weight = torch.from_numpy(edge_weight).float()
 
+        # ── 边特征 (Phase 1新增) ──
+        n_edges = edge_list.shape[1]
+        edge_feat = np.zeros((n_edges, 4), dtype=np.float32)
+        # 特征0: 单元中心距离 (归一化到 [0,1])
+        max_dist = np.max(np.abs(centers[:, :2])) * 2 + 1e-8
+        for e_idx, (i, j) in enumerate(zip(edge_list[0], edge_list[1])):
+            ci, cj = centers[i, :2], centers[j, :2]
+            dist = np.linalg.norm(ci - cj)
+            edge_feat[e_idx, 0] = dist / (dist + 0.002)  # 归一化到~[0,1]
+            # 特征1: 共享节点数 / 3
+            shared = len(set(elements[i]) & set(elements[j]))
+            edge_feat[e_idx, 1] = shared / 3.0
+            # 特征2: 单元中心相对方向 (单位向量的 dot product ≈ 面积比)
+            ri = np.linalg.norm(ci) / max_dist
+            rj = np.linalg.norm(cj) / max_dist
+            edge_feat[e_idx, 2] = min(ri, rj) / (max(ri, rj) + 1e-8)
+            # 特征3: 方向角度的余弦相似性
+            if dist > 1e-8:
+                dot_ij = (ci * cj).sum() / ((np.linalg.norm(ci) + 1e-8) * (np.linalg.norm(cj) + 1e-8))
+            else:
+                dot_ij = 1.0
+            edge_feat[e_idx, 3] = (dot_ij + 1) / 2.0  # → [0,1]
+        self.register_buffer('_edge_feat', torch.from_numpy(edge_feat).float())
+        edge_dim = 4
+
         # ── 位置编码（P0-2）──
         c = centers[:, :2].astype(np.float32)
         r_max = np.abs(c).max() + 1e-8
@@ -274,12 +326,35 @@ class ConvSpatialEIT(nn.Module):
                 gnn_in_dim if i == 0 else self.gnn_hidden,
                 self.gnn_hidden,
                 self.gnn_dropout,
+                edge_dim=edge_dim,
             )
             for i in range(self.gnn_layers)
         ])
 
+        # ── Jacobian 残差反投影 (Phase 1新增) ──
+        self.sigma_ref = sigma_ref
+        self._has_jacobian = False
+        if jacobian is not None:
+            # jacobian: (n_meas, n_elems)
+            J = torch.from_numpy(jacobian).float()
+            self.register_buffer('J', J)                      # (n_meas, n_elems)
+            self.register_buffer('J_T', J.T.contiguous())     # (n_elems, n_meas)
+            # 残差校正头 (输入: gnn_hidden + 1, 输出: 1)
+            self.correction_head = nn.Sequential(
+                nn.Linear(self.gnn_hidden + 1, self.gnn_hidden // 2),
+                nn.GELU(),
+                nn.Dropout(self.gnn_dropout * 0.5),
+                nn.Linear(self.gnn_hidden // 2, 1),
+            )
+            self._has_jacobian = True
+        else:
+            self.register_buffer('J', torch.zeros(1, 1))
+            self.register_buffer('J_T', torch.zeros(1, 1))
+            self.correction_head = nn.Identity()
+
         print(f"  [ConvSpatial] 网格: {n_elems} 单元, {len(edges)} 条边, "
-              f"位置编码: {self.pos_dim}维")
+              f"位置编码: {self.pos_dim}维"
+              + (f", Jᵀr: 已启用" if self._has_jacobian else ""))
 
     def forward(self, voltages: torch.Tensor) -> dict:
         """
@@ -320,18 +395,38 @@ class ConvSpatialEIT(nn.Module):
         if self._edge_idx is not None:
             edge_idx = self._edge_idx.to(device)
             edge_weight = self._edge_weight.to(device)
+            edge_feat = self._edge_feat.to(device) if hasattr(self, '_edge_feat') else None
             for gnn in self.gnn_blocks:
-                h = gnn(h, edge_idx, edge_weight)
+                h = gnn(h, edge_idx, edge_weight, edge_feat=edge_feat)
 
-        # 5. Output
-        sigma_raw = self.output_head(h).squeeze(-1)
+        # 5a. 初始预测 σ₀（主路径）
+        sigma_raw_0 = self.output_head(h).squeeze(-1)        # (B, n_elems)
+
+        # 5b. Jᵀr 残差反投影 (Phase 1新增)
+        delta = 0.0
+        if self._has_jacobian:
+            # 线性化电压: V_lin = J·(σ₀ - σ_ref)
+            sigma_delta = sigma_raw_0 - self.sigma_ref       # (B, n_elems)
+            V_lin = (self.J.unsqueeze(0) @ sigma_delta.unsqueeze(-1)
+                     ).squeeze(-1)                           # (B, n_meas)
+            # 电压残差: 用融合后的单频电压
+            V_meas = x.squeeze(1).view(B, -1)                # (B, 208)
+            r = V_meas - V_lin                                # (B, n_meas)
+            # 反投影到网格
+            g = (self.J_T.unsqueeze(0) @ r.unsqueeze(-1)
+                 ).squeeze(-1)                                # (B, n_elems)
+            # 拼接到 GNN 隐藏层 → 残差校正
+            h_corr = torch.cat([h, g.unsqueeze(-1)], dim=-1)  # (B, n_elems, gnn_hidden+1)
+            delta = self.correction_head(h_corr).squeeze(-1)  # (B, n_elems)
+
+        # 5c. 最终输出: σ = Sigmoid(σ₀ + Δσ) → [σ_min, σ_max]
+        sigma_raw = sigma_raw_0 + delta
         sigma = torch.sigmoid(sigma_raw) * (self.sigma_max - self.sigma_min) + self.sigma_min
 
         return {
             'sigma': sigma,
-            'base_map': None,
-            'freq_weights': None,
-            'blc_gates': None,
+            'sigma_0': torch.sigmoid(sigma_raw_0) * (self.sigma_max - self.sigma_min) + self.sigma_min,
+            'delta': delta if isinstance(delta, torch.Tensor) else torch.zeros_like(sigma),
         }
 
     def predict(self, voltages: torch.Tensor) -> torch.Tensor:
@@ -358,9 +453,11 @@ if __name__ == "__main__":
     out = model(x)
     print(f"输入: {x.shape}")
     print(f"输出 sigma: {out['sigma'].shape}")
+    print(f"输出 sigma_0: {out['sigma_0'].shape}")
     print(f"范围: [{out['sigma'].min().item():.4f}, {out['sigma'].max().item():.4f}]")
     print(f"参数: {sum(p.numel() for p in model.parameters()):,}")
     print(f"位置编码: {model.pos_dim}维")
+    print(f"Jᵀr: {'启用' if model._has_jacobian else '禁用'}")
 
     loss = out['sigma'].mean()
     loss.backward()

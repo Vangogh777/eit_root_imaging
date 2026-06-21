@@ -86,7 +86,10 @@ def main():
     mesh_elements = solver.mesh.element
 
     model = ConvSpatialEIT(n_elems=n_elems, gnn_hidden=512, hidden_dim=256)
-    model.setup_mesh(centers, solver.mesh.element)
+    # 加载 Jacobian (Phase 1: Jᵀr)
+    jac_path = "data/generated/jacobian.npy"
+    jacobian = np.load(jac_path)[0] if os.path.exists(jac_path) else None
+    model.setup_mesh(centers, solver.mesh.element, jacobian=jacobian)
 
     ckpt = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(ckpt if 'model_state_dict' not in ckpt else ckpt['model_state_dict'])

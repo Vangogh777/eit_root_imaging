@@ -166,7 +166,13 @@ def train():
         gnn_hidden=args.hidden_dim,  # 真正控制 GNN 容量
         gnn_layers=args.gnn_layers,
     )
-    model.setup_mesh(centers, elements)  # 先建GNN，再移GPU
+    # 加载 Jacobian (Phase 1: Jᵀr 残差反投影)
+    jac_path = "data/generated/jacobian.npy"
+    jacobian = None
+    if os.path.exists(jac_path):
+        jacobian = np.load(jac_path)[0]  # (208, n_elems), 取第1频率
+        print(f"加载 Jacobian: {jacobian.shape}")
+    model.setup_mesh(centers, elements, jacobian=jacobian)
     model = model.to(device)
     print(f"参数量: {sum(p.numel() for p in model.parameters()):,}")
 

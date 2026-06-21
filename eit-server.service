@@ -1,0 +1,22 @@
+[Unit]
+Description=EIT Root Imaging - 结果动态展示服务器
+Documentation=https://github.com/your-repo/eit_root_imaging
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/EIT/eit_root_imaging
+ExecStart=/home/ubuntu/miniconda3/bin/python3 /home/ubuntu/EIT/eit_root_imaging/serve_results.py --port 80
+Restart=always
+RestartSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+StandardOutput=append:/var/log/eit-server.log
+StandardError=append:/var/log/eit-server.log
+
+[Install]
+WantedBy=multi-user.target

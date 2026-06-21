@@ -1,0 +1,17 @@
+{"event": "best_model_saved", "time": "2026-06-17T20:02:23.042348", "re": 0.41358667612075806, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T20:09:24.550043", "re": 0.382021427154541, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T20:23:28.542745", "re": 0.3589344322681427, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T20:30:30.746952", "re": 0.3481580317020416, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T20:44:34.986570", "re": 0.33964022994041443, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T20:58:38.872275", "re": 0.3332711458206177, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T21:12:42.902480", "re": 0.3313494622707367, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T21:19:45.278523", "re": 0.32770290970802307, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T21:26:47.244627", "re": 0.32420557737350464, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T21:33:49.682561", "re": 0.3233782649040222, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T22:01:58.696535", "re": 0.31145185232162476, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T22:23:04.866403", "re": 0.31125959753990173, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T22:37:08.348788", "re": 0.3087254464626312, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T22:51:12.277318", "re": 0.30692392587661743, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T23:05:16.490896", "re": 0.3048851490020752, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-17T23:54:30.149249", "re": 0.3041686713695526, "path": "checkpoints/conv_spatial_best.pt"}
+{"event": "best_model_saved", "time": "2026-06-18T00:15:36.611119", "re": 0.30167821049690247, "path": "checkpoints/conv_spatial_best.pt"}
