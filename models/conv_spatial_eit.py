@@ -279,8 +279,9 @@ class GATv2Layer(nn.Module):
             ef = edge_feat.unsqueeze(0).unsqueeze(2).expand(B, -1, self.n_heads, -1)
             attn_input = torch.cat([attn_input, ef], dim=-1)
 
-        e = self.a(attn_input).squeeze(-1)                     # (B, E, n_heads)
-        e = e + torch.log(edge_weight.clamp_min(1e-12)).view(1, -1, 1)
+        e = self.a(attn_input).squeeze(-1).float()             # (B, E, n_heads)
+        e = e + torch.log(edge_weight.float().clamp_min(1e-12)).view(1, -1, 1)
+        e = torch.nan_to_num(e, nan=0.0, posinf=30.0, neginf=-30.0).clamp_(-30.0, 30.0)
 
         # 对每个目标节点的入边分别做 softmax，而不是对全图所有边归一化。
         dst_index = dst.view(1, -1, 1).expand(B, -1, self.n_heads)
@@ -293,7 +294,7 @@ class GATv2Layer(nn.Module):
         denom = torch.zeros(B, N, self.n_heads, device=device, dtype=e.dtype)
         denom.scatter_add_(1, dst_index, exp_e)
         alpha = exp_e / (denom.gather(1, dst_index) + 1e-12)   # (B, E, n_heads)
-        alpha = self.dropout(alpha)
+        alpha = self.dropout(alpha).to(V.dtype)
 
         # 消息聚合
         msg = V[:, src] * alpha.unsqueeze(-1)                  # (B, E, n_heads, head_dim)
@@ -529,7 +530,9 @@ class ConvSpatialEIT(nn.Module):
             x = voltages.view(B, 6, 13, 16)
         else:
             x = voltages  # (B, 6, 13, 16)
+        x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         x = self.freq_fusion(x)  # (B, 1, 13, 16)
+        x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
 
         # ── 输入归一化（P1-8）──
         amax = x.flatten(1).abs().max(dim=1)[0].view(B, 1, 1, 1) + 1e-8

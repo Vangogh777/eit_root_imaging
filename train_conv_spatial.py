@@ -100,6 +100,8 @@ def train():
                         help="边缘判定阈值 (米, 默认0.05)")
     parser.add_argument("--use_model_jacobian", action="store_true",
                         help="在模型内部启用 Jᵀr 残差校正；默认关闭以避免监督预训练早期溢出")
+    parser.add_argument("--voltage_mask_ratio", type=float, default=0.0,
+                        help="训练时随机遮盖电压通道比例；短训排障默认关闭")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -290,9 +292,12 @@ def train():
             for batch in tqdm(train_loader, desc=f"Sup Epoch {epoch}"):
                 V = batch['voltages'].to(device)  # (B, 6, 208)
                 S = batch['sigmas'].to(device)     # (B, n_elems)
+                if not torch.isfinite(V).all() or not torch.isfinite(S).all():
+                    print(f"  ⚠ 跳过非有限数据 batch: idx={batch.get('idx')}")
+                    continue
                 B = V.shape[0]
                 V_img = V.view(B, 6, 13, 16)
-                V_img = voltage_masking(V_img, mask_ratio=0.15)  # 电压掩码增强
+                V_img = voltage_masking(V_img, mask_ratio=args.voltage_mask_ratio)
 
                 optimizer.zero_grad()
                 with torch.cuda.amp.autocast(enabled=device.type == 'cuda'):
@@ -301,7 +306,12 @@ def train():
 
                 # 跳过 loss 异常的 batch（防止梯度爆炸）
                 if torch.isnan(loss) or torch.isinf(loss) or loss.item() > 1.0:
-                    print(f"  ⚠ 跳过异常 batch: loss={loss.item():.4f}")
+                    sigma = out['sigma'].detach()
+                    print(f"  ⚠ 跳过异常 batch: loss={loss.item():.4f}, "
+                          f"idx={batch.get('idx')}, "
+                          f"pred_finite={torch.isfinite(sigma).all().item()}, "
+                          f"pred_range=({torch.nan_to_num(sigma).min().item():.4g},"
+                          f"{torch.nan_to_num(sigma).max().item():.4g})")
                     continue
 
                 scaler.scale(loss).backward()
@@ -423,8 +433,11 @@ def train():
             epoch_loss = 0.0
             for batch in tqdm(train_loader, desc=f"Unsup Epoch {epoch}"):
                 V = batch['voltages'].to(device).view(-1, 6, 13, 16)
-                V = voltage_masking(V, mask_ratio=0.15)  # 电压掩码增强
+                V = voltage_masking(V, mask_ratio=args.voltage_mask_ratio)
                 S_gt = batch['sigmas'].to(device)  # GT 用于半监督锚点
+                if not torch.isfinite(V).all() or not torch.isfinite(S_gt).all():
+                    print(f"  ⚠ 跳过非有限数据 batch: idx={batch.get('idx')}")
+                    continue
 
                 optimizer.zero_grad()
                 with torch.cuda.amp.autocast(enabled=device.type == 'cuda'):
