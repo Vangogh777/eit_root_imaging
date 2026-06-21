@@ -267,8 +267,15 @@ def train():
         optim_params += list(adaptive_weighter.parameters())
 
     optimizer = torch.optim.AdamW(optim_params, lr=args.lr, weight_decay=1e-6)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=20, T_mult=2)
+    # 使用更平滑的学习率调度，避免 WarmRestarts 导致的训练反跳
+    if args.mode == "supervised" and args.epochs_sup <= 50:
+        # 短训练使用普通余弦退火，避免周期末尾的反跳
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=args.epochs_sup, eta_min=1e-6)
+    else:
+        # 长训练或 both 模式使用带热重启的余弦退火
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, T_0=20, T_mult=2)
 
     # ── EMA 指数移动平均 ──
     ema_model = torch.optim.swa_utils.AveragedModel(model).to(device)
