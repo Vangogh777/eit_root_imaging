@@ -98,6 +98,8 @@ def train():
                         help="边缘样本比例 (默认0.5=50%%)")
     parser.add_argument("--edge_threshold", type=float, default=0.05,
                         help="边缘判定阈值 (米, 默认0.05)")
+    parser.add_argument("--use_model_jacobian", action="store_true",
+                        help="在模型内部启用 Jᵀr 残差校正；默认关闭以避免监督预训练早期溢出")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -205,13 +207,15 @@ def train():
         gnn_hidden=args.hidden_dim,  # 真正控制 GNN 容量
         gnn_layers=args.gnn_layers,
     )
-    # 加载 Jacobian (Phase 1: Jᵀr 残差反投影)
+    # 模型内部的 Jᵀr 校正在监督预训练早期容易放大 logits，默认关闭。
     jac_path = "data/generated/jacobian.npy"
-    jacobian = None
-    if os.path.exists(jac_path):
-        jacobian = np.load(jac_path)[0]  # (208, n_elems), 取第1频率
-        print(f"加载 Jacobian: {jacobian.shape}")
-    model.setup_mesh(centers, elements, jacobian=jacobian)
+    model_jacobian = None
+    if args.use_model_jacobian and os.path.exists(jac_path):
+        model_jacobian = np.load(jac_path)[0]  # (208, n_elems), 取第1频率
+        print(f"模型 Jᵀr 校正已启用: {model_jacobian.shape}")
+    elif os.path.exists(jac_path):
+        print("模型 Jᵀr 校正: 默认关闭（无监督物理损失仍会单独加载 Jacobian）")
+    model.setup_mesh(centers, elements, jacobian=model_jacobian)
     model = model.to(device)
     print(f"参数量: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -230,6 +234,7 @@ def train():
         "epochs_unsup": args.epochs_unsup,
         "model_params": n_params,
         "lr": args.lr,
+        "use_model_jacobian": args.use_model_jacobian,
     })
     # torch.compile 暂不兼容(位置编码buffer跨设备问题), 后续适配
     # model = torch.compile(model)

@@ -567,16 +567,19 @@ class ConvSpatialEIT(nn.Module):
         # 5b. Jᵀr 残差反投影 (Phase 1新增)
         delta = 0.0
         if self._has_jacobian:
-            # 线性化电压: V_lin = J·(σ₀ - σ_ref)
-            sigma_delta = sigma_raw_0 - self.sigma_ref       # (B, n_elems)
-            V_lin = (self.J.unsqueeze(0) @ sigma_delta.unsqueeze(-1)
-                     ).squeeze(-1)                           # (B, n_meas)
-            # 电压残差: 用融合后的单频电压
-            V_meas = x.squeeze(1).view(B, -1)                # (B, 208)
-            r = V_meas - V_lin                                # (B, n_meas)
-            # 反投影到网格
-            g = (self.J_T.unsqueeze(0) @ r.unsqueeze(-1)
-                 ).squeeze(-1)                                # (B, n_elems)
+            # 用物理范围内的 σ₀ 做线性化，避免未约束 logits 经 J 放大后溢出。
+            sigma_0_phys = torch.sigmoid(sigma_raw_0) * (self.sigma_max - self.sigma_min) + self.sigma_min
+            sigma_delta = sigma_0_phys - self.sigma_ref       # (B, n_elems)
+            V_lin = (self.J.unsqueeze(0) @ sigma_delta.float().unsqueeze(-1)
+                     ).squeeze(-1).to(sigma_raw_0.dtype)      # (B, n_meas)
+            # 电压残差: 用融合后的单频电压，并按样本尺度归一化。
+            V_meas = x.squeeze(1).view(B, -1)                 # (B, 208)
+            v_scale = V_meas.detach().norm(dim=-1, keepdim=True).clamp_min(1e-6)
+            r = (V_meas - V_lin) / v_scale                    # (B, n_meas)
+            # 反投影到网格后标准化，避免 correction_head 输入尺度失控。
+            g = (self.J_T.unsqueeze(0) @ r.float().unsqueeze(-1)
+                 ).squeeze(-1).to(sigma_raw_0.dtype)          # (B, n_elems)
+            g = (g - g.mean(dim=-1, keepdim=True)) / (g.std(dim=-1, keepdim=True) + 1e-6)
             # 拼接到 GNN 隐藏层 → 残差校正
             h_corr = torch.cat([h, g.unsqueeze(-1)], dim=-1)  # (B, n_elems, gnn_hidden+1)
             delta = self.correction_head(h_corr).squeeze(-1)  # (B, n_elems)
