@@ -92,6 +92,10 @@ def train():
                         help="EMA 衰减系数；短训建议 0.99，长训可调到 0.999")
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--gnn_layers", type=int, default=4)
+    parser.add_argument("--no_gat", action="store_true",
+                        help="关闭 GATv2，使用更快的 SimpleGNN 做速度/精度对照")
+    parser.add_argument("--n_heads", type=int, default=4,
+                        help="GATv2 attention heads 数量")
     parser.add_argument("--mode", choices=["supervised", "unsupervised", "both"],
                         default="both", help="训练模式")
     parser.add_argument("--generate", action="store_true", help="强制重新生成数据")
@@ -218,6 +222,8 @@ def train():
         hidden_dim=args.hidden_dim,
         gnn_hidden=args.hidden_dim,  # 真正控制 GNN 容量
         gnn_layers=args.gnn_layers,
+        use_gat=not args.no_gat,
+        n_heads=args.n_heads,
     )
     # 模型内部的 Jᵀr 校正在监督预训练早期容易放大 logits，默认关闭。
     jac_path = "data/generated/jacobian.npy"
@@ -247,6 +253,8 @@ def train():
         "model_params": n_params,
         "lr": args.lr,
         "use_model_jacobian": args.use_model_jacobian,
+        "use_gat": not args.no_gat,
+        "n_heads": args.n_heads,
     })
     # torch.compile 暂不兼容(位置编码buffer跨设备问题), 后续适配
     # model = torch.compile(model)
@@ -400,6 +408,8 @@ def train():
                     'hidden_dim': args.hidden_dim,
                     'gnn_hidden': args.hidden_dim,
                     'gnn_layers': args.gnn_layers,
+                    'use_gat': not args.no_gat,
+                    'n_heads': args.n_heads,
                     'best_source': best_source,
                 }, "checkpoints/conv_spatial_best.pt")
                 print(f"  → 保存最佳模型 ({best_source}, RE={best_re:.4f})")
@@ -528,6 +538,8 @@ def train():
                     'hidden_dim': args.hidden_dim,
                     'gnn_hidden': args.hidden_dim,
                     'gnn_layers': args.gnn_layers,
+                    'use_gat': not args.no_gat,
+                    'n_heads': args.n_heads,
                 }, ckpt_path)
                 print(f"  → 已保存: {ckpt_path}")
                 recorder.log_event("checkpoint_saved", path=ckpt_path, epoch=epoch)
@@ -543,6 +555,8 @@ def train():
         'hidden_dim': args.hidden_dim,
         'gnn_hidden': args.hidden_dim,
         'gnn_layers': args.gnn_layers,
+        'use_gat': not args.no_gat,
+        'n_heads': args.n_heads,
     }, save_path)
     print(f"\n✅ 模型已保存: {save_path}")
     recorder.log_event("training_completed", final_model=save_path)
