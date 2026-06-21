@@ -85,6 +85,8 @@ def train():
     parser.add_argument("--epochs_sup", type=int, default=50, help="有监督预训练轮数")
     parser.add_argument("--epochs_unsup", type=int, default=200, help="无监督精调轮数")
     parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--grad_accum_steps", type=int, default=1,
+                        help="梯度累积步数；显存不够时用小 batch 模拟大 batch")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--gnn_layers", type=int, default=4)
@@ -133,6 +135,9 @@ def train():
     train_ds = MemoryEITDataset(h5_path, split='train', voltage_mask_ratio=0.0)
     val_ds = MemoryEITDataset(h5_path, split='val', voltage_mask_ratio=0.0)
     print(f"训练: {len(train_ds)}, 验证: {len(val_ds)}")
+    if args.grad_accum_steps > 1:
+        print(f"梯度累积: batch_size={args.batch_size} × {args.grad_accum_steps} "
+              f"= 等效 batch_size {args.batch_size * args.grad_accum_steps}")
 
     # ── 分层采样器：每个 batch 一半边缘、一半中心 ──
     class BalancedBatchSampler(torch.utils.data.Sampler):
@@ -289,7 +294,8 @@ def train():
         for epoch in range(1, args.epochs_sup + 1):
             model.train()
             epoch_loss = 0.0
-            for batch in tqdm(train_loader, desc=f"Sup Epoch {epoch}"):
+            optimizer.zero_grad(set_to_none=True)
+            for step, batch in enumerate(tqdm(train_loader, desc=f"Sup Epoch {epoch}"), start=1):
                 V = batch['voltages'].to(device)  # (B, 6, 208)
                 S = batch['sigmas'].to(device)     # (B, n_elems)
                 if not torch.isfinite(V).all() or not torch.isfinite(S).all():
@@ -299,7 +305,6 @@ def train():
                 V_img = V.view(B, 6, 13, 16)
                 V_img = voltage_masking(V_img, mask_ratio=args.voltage_mask_ratio)
 
-                optimizer.zero_grad()
                 with torch.cuda.amp.autocast(enabled=device.type == 'cuda'):
                     out = model(V_img)
                     loss = criterion(out['sigma'], S)
@@ -314,17 +319,20 @@ def train():
                           f"{torch.nan_to_num(sigma).max().item():.4g})")
                     continue
 
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-                grad_norm = nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+                scaler.scale(loss / args.grad_accum_steps).backward()
+                should_step = (step % args.grad_accum_steps == 0) or (step == len(train_loader))
+                if should_step:
+                    scaler.unscale_(optimizer)
+                    grad_norm = nn.utils.clip_grad_norm_(model.parameters(), 5.0)
 
-                # 梯度爆炸预警
-                if grad_norm > 2.0:
-                    print(f"  ⚠ 大梯度: {grad_norm:.2f} | loss={loss.item():.6f}")
+                    # 梯度爆炸预警
+                    if grad_norm > 2.0:
+                        print(f"  ⚠ 大梯度: {grad_norm:.2f} | loss={loss.item():.6f}")
 
-                scaler.step(optimizer)
-                scaler.update()
-                update_ema(ema_model, model, ema_decay)
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad(set_to_none=True)
+                    update_ema(ema_model, model, ema_decay)
                 epoch_loss += loss.item()
 
             scheduler.step()
@@ -431,7 +439,8 @@ def train():
             model.train()
             adaptive_weighter.train()
             epoch_loss = 0.0
-            for batch in tqdm(train_loader, desc=f"Unsup Epoch {epoch}"):
+            optimizer.zero_grad(set_to_none=True)
+            for step, batch in enumerate(tqdm(train_loader, desc=f"Unsup Epoch {epoch}"), start=1):
                 V = batch['voltages'].to(device).view(-1, 6, 13, 16)
                 V = voltage_masking(V, mask_ratio=args.voltage_mask_ratio)
                 S_gt = batch['sigmas'].to(device)  # GT 用于半监督锚点
@@ -439,7 +448,6 @@ def train():
                     print(f"  ⚠ 跳过非有限数据 batch: idx={batch.get('idx')}")
                     continue
 
-                optimizer.zero_grad()
                 with torch.cuda.amp.autocast(enabled=device.type == 'cuda'):
                     out = model(V)
                     sp = out['sigma']
@@ -462,12 +470,15 @@ def train():
                     print(f"  ⚠ 跳过异常 batch: total_loss={total.item():.4f}")
                     continue
 
-                total.backward()
-                grad_norm = nn.utils.clip_grad_norm_(model.parameters(), 5.0)
-                if grad_norm > 2.0:
-                    print(f"  ⚠ 大梯度: {grad_norm:.2f} | loss={total.item():.4f}")
-                optimizer.step()
-                update_ema(ema_model, model, ema_decay)
+                (total / args.grad_accum_steps).backward()
+                should_step = (step % args.grad_accum_steps == 0) or (step == len(train_loader))
+                if should_step:
+                    grad_norm = nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+                    if grad_norm > 2.0:
+                        print(f"  ⚠ 大梯度: {grad_norm:.2f} | loss={total.item():.4f}")
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                    update_ema(ema_model, model, ema_decay)
                 epoch_loss += total.item()
 
             scheduler.step()
