@@ -88,6 +88,8 @@ def train():
     parser.add_argument("--grad_accum_steps", type=int, default=1,
                         help="梯度累积步数；显存不够时用小 batch 模拟大 batch")
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--ema_decay", type=float, default=0.99,
+                        help="EMA 衰减系数；短训建议 0.99，长训可调到 0.999")
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--gnn_layers", type=int, default=4)
     parser.add_argument("--mode", choices=["supervised", "unsupervised", "both"],
@@ -193,7 +195,10 @@ def train():
                 yield batch
 
         def __len__(self):
-            return len(self.edge_idx) // max(1, int(self.batch_size * self.edge_ratio))
+            n_edge_per = max(1, int(self.batch_size * self.edge_ratio))
+            n_center_per = self.batch_size - n_edge_per
+            step = max(n_edge_per, n_center_per)
+            return int(np.ceil(max(len(self.edge_idx), len(self.center_idx)) / step))
 
     sampler = BalancedBatchSampler(
         train_ds, batch_size=args.batch_size,
@@ -259,7 +264,7 @@ def train():
 
     # ── EMA 指数移动平均 ──
     ema_model = torch.optim.swa_utils.AveragedModel(model).to(device)
-    ema_decay = 0.999
+    ema_decay = args.ema_decay
     reset_ema_to_model(ema_model, model)
 
     if args.resume:
@@ -337,37 +342,57 @@ def train():
 
             scheduler.step()
 
-            # 验证
+            # 验证：同时看 raw 和 EMA。短训时 EMA 可能滞后，不能只看 EMA。
+            model.eval()
             ema_model.eval()
-            val_loss = 0.0
-            all_pred, all_gt = [], []
+            raw_val_loss = 0.0
+            ema_val_loss = 0.0
+            raw_pred, ema_pred, all_gt = [], [], []
             with torch.no_grad():
                 for batch in val_loader:
                     V = batch['voltages'].to(device).view(-1, 6, 13, 16)
                     S = batch['sigmas'].to(device)
-                    out = ema_model(V)
-                    val_loss += criterion(out['sigma'], S).item()
-                    all_pred.append(out['sigma'].cpu())
+                    raw_out = model(V)
+                    ema_out = ema_model(V)
+                    raw_val_loss += criterion(raw_out['sigma'], S).item()
+                    ema_val_loss += criterion(ema_out['sigma'], S).item()
+                    raw_pred.append(raw_out['sigma'].cpu())
+                    ema_pred.append(ema_out['sigma'].cpu())
                     all_gt.append(S.cpu())
 
-            all_pred = torch.cat(all_pred)
+            raw_pred = torch.cat(raw_pred)
+            ema_pred = torch.cat(ema_pred)
             all_gt = torch.cat(all_gt)
-            re = torch.norm(all_pred - all_gt, dim=-1).mean() / \
+            raw_re = torch.norm(raw_pred - all_gt, dim=-1).mean() / \
                  (torch.norm(all_gt, dim=-1).mean() + 1e-8)
+            ema_re = torch.norm(ema_pred - all_gt, dim=-1).mean() / \
+                 (torch.norm(all_gt, dim=-1).mean() + 1e-8)
+            use_ema_best = ema_re <= raw_re
+            re = ema_re if use_ema_best else raw_re
+            val_loss = ema_val_loss if use_ema_best else raw_val_loss
+            best_source = "ema" if use_ema_best else "raw"
 
             print(f"  Epoch {epoch:2d} | Loss: {epoch_loss/len(train_loader):.6f}"
-                  f" | Val: {val_loss/len(val_loader):.6f} | RE: {re:.4f}")
+                  f" | Raw Val: {raw_val_loss/len(val_loader):.6f} | Raw RE: {raw_re:.4f}"
+                  f" | EMA Val: {ema_val_loss/len(val_loader):.6f} | EMA RE: {ema_re:.4f}"
+                  f" | Best: {best_source}")
             recorder.log_epoch(phase="supervised", epoch=epoch,
                                loss=epoch_loss/len(train_loader),
                                val_loss=val_loss/len(val_loader),
-                               re=re.item())
+                               re=re.item(),
+                               raw_re=raw_re.item(),
+                               ema_re=ema_re.item())
 
             if re < best_re:
                 best_re = re
                 os.makedirs("checkpoints", exist_ok=True)
+                save_ema_model = ema_model
+                if not use_ema_best:
+                    save_ema_model = torch.optim.swa_utils.AveragedModel(model).to(device)
+                    reset_ema_to_model(save_ema_model, model)
                 torch.save({
                     'model': model.state_dict(),
-                    'ema_model': ema_model.state_dict(),
+                    'ema_model': save_ema_model.state_dict(),
                     'optimizer': optimizer.state_dict(),
                     'scheduler': scheduler.state_dict(),
                     'adaptive_weighter': adaptive_weighter.state_dict() if adaptive_weighter is not None else None,
@@ -375,9 +400,11 @@ def train():
                     'hidden_dim': args.hidden_dim,
                     'gnn_hidden': args.hidden_dim,
                     'gnn_layers': args.gnn_layers,
+                    'best_source': best_source,
                 }, "checkpoints/conv_spatial_best.pt")
-                print(f"  → 保存最佳模型 (RE={best_re:.4f})")
+                print(f"  → 保存最佳模型 ({best_source}, RE={best_re:.4f})")
                 recorder.log_event("best_model_saved", re=best_re.item(),
+                                   source=best_source,
                                    path="checkpoints/conv_spatial_best.pt")
 
             if re < 0.03:
