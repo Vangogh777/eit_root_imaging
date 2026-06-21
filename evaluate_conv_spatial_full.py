@@ -92,7 +92,20 @@ def main():
     model.setup_mesh(centers, solver.mesh.element, jacobian=jacobian)
 
     ckpt = torch.load(args.checkpoint, map_location=device)
-    model.load_state_dict(ckpt if 'model_state_dict' not in ckpt else ckpt['model_state_dict'])
+    if isinstance(ckpt, dict):
+        if 'ema_model' in ckpt:
+            from torch.optim.swa_utils import AveragedModel
+            ema_model = AveragedModel(model)
+            ema_model.load_state_dict(ckpt['ema_model'])
+            model.load_state_dict(ema_model.module.state_dict())
+        elif 'model' in ckpt:
+            model.load_state_dict(ckpt['model'])
+        elif 'model_state_dict' in ckpt:
+            model.load_state_dict(ckpt['model_state_dict'])
+        else:
+            model.load_state_dict(ckpt)
+    else:
+        model.load_state_dict(ckpt)
     model.to(device).eval()
     n_params = sum(p.numel() for p in model.parameters())
     print(f"  参数: {n_params:,}")

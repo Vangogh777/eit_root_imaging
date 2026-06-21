@@ -357,10 +357,34 @@ class AdaptiveLossWeighter(nn.Module):
             losses: 包含各个损失的 dict
 
         返回:
-            加权总损失
+       加权总损失
         """
         total = 0.0
         for i, (name, loss) in enumerate(losses.items()):
             precision = torch.exp(-self.log_vars[i])
             total += precision * loss + self.log_vars[i] * 0.5
         return total
+
+
+def edge_weighted_mse(pred, target, sigma_soil=0.01, sigma_root=0.05):
+    """
+    边缘加权 MSE 损失
+    ====================
+    对 conductivity 从土壤过渡到根部的"边缘区域"赋予更高权重 (3x)，
+    迫使模型更精确地还原根与土壤之间的过渡边界。
+
+    参数:
+        pred: (B, n_elems) 预测电导率
+        target: (B, n_elems) 真实电导率
+        sigma_soil: 土壤背景电导率，默认 0.01 S/m
+        sigma_root: 根部电导率，默认 0.05 S/m
+
+    返回:
+        loss: 标量加权 MSE 损失
+    """
+    low = sigma_soil * 1.2
+    high = sigma_root * 0.9
+    edge_mask = (target > low) & (target < high)
+    weights = torch.where(edge_mask, 3.0, 1.0)
+    loss = (weights * (pred - target).pow(2)).mean()
+    return loss

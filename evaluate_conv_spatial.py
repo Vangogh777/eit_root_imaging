@@ -52,7 +52,12 @@ def main():
     model.setup_mesh(centers, solver.mesh.element)
 
     ckpt = torch.load(args.checkpoint, map_location=device)
-    if 'model' in ckpt:
+    if isinstance(ckpt, dict) and 'ema_model' in ckpt:
+        from torch.optim.swa_utils import AveragedModel
+        ema_model = AveragedModel(model)
+        ema_model.load_state_dict(ckpt['ema_model'])
+        model.load_state_dict(ema_model.module.state_dict())
+    elif isinstance(ckpt, dict) and 'model' in ckpt:
         model.load_state_dict(ckpt['model'])
     else:
         model.load_state_dict(ckpt)

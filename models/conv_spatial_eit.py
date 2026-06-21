@@ -36,14 +36,63 @@ class ResBlock(nn.Module):
         return x + self.net(x)
 
 
+class FrequencyCrossAttention(nn.Module):
+    """多频 Cross-Attention 融合层 — 替换 1×1 Conv，建模频率间非线性交互"""
+    def __init__(self, n_freq: int = 6, d_model: int = 64):
+        super().__init__()
+        self.d_model = d_model
+        self.proj_in = nn.Conv2d(n_freq, d_model, 1, bias=False)
+        self.pos_embed = nn.Parameter(torch.randn(1, d_model, 13, 16) * 0.02)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.scale = d_model ** -0.5
+        self.proj_out = nn.Conv2d(d_model, 1, 1, bias=False)
+
+    def forward(self, x):
+        B = x.shape[0]
+        h = self.proj_in(x) + self.pos_embed              # (B, d_model, 13, 16)
+        h_flat = h.view(B, self.d_model, -1).transpose(1, 2)  # (B, 208, d_model)
+        Q = self.q_proj(h_flat)                            # (B, 208, d_model)
+        K = self.k_proj(h_flat)
+        V = self.v_proj(h_flat)
+        attn = (Q @ K.transpose(-2, -1)) * self.scale     # (B, 208, 208)
+        attn = F.softmax(attn, dim=-1)
+        out = attn @ V                                     # (B, 208, d_model)
+        out = out.transpose(1, 2).view(B, self.d_model, 13, 16)
+        out = self.proj_out(out)                           # (B, 1, 13, 16)
+        return out
+
+
+class SEModule(nn.Module):
+    """SE 通道注意力模块"""
+    def __init__(self, channels, reduction=16):
+        super().__init__()
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.shape
+        y = self.gap(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y
+
+
 class ConvEncoder(nn.Module):
     """
     Conv2D 编码器 v2
     - 单频输入 (in_channels=1)
     - 不下采样，保持 13×16 原生分辨率
-    - 输出 (B, 128, 13, 16)
+    - SE 通道注意力
+    - 跳跃连接输出 (f1: stage1, f2: stage2+SE)
+    - 输出 (B, 256, 13, 16), [f1: (B, 192, 13, 16), f2: (B, 384, 13, 16)]
     """
-    def __init__(self, in_channels: int = 1, base_ch: int = 48):
+    def __init__(self, in_channels: int = 1, base_ch: int = 96):
         super().__init__()
 
         self.stem = nn.Sequential(
@@ -69,19 +118,28 @@ class ConvEncoder(nn.Module):
             ResBlock(base_ch * 4),
         )
 
+        # SE 通道注意力 (stage2 后)
+        self.se = SEModule(base_ch * 4)
+
         # 输出投影
+        self.out_channels = base_ch * 2 + 64  # = 256
         self.out_proj = nn.Sequential(
-            nn.Conv2d(base_ch * 4, 128, 1, bias=False),
-            nn.BatchNorm2d(128),
+            nn.Conv2d(base_ch * 4, self.out_channels, 1, bias=False),
+            nn.BatchNorm2d(self.out_channels),
             nn.ReLU(inplace=True),
         )
 
+        # 跳跃连接通道数记录 (含主路径输出，用于 GNN 第一层维度)
+        self.total_out_channels = self.out_channels + base_ch * 2 + base_ch * 4  # = 832
+
     def forward(self, x):
         x = self.stem(x)       # (B, base_ch, 13, 16)
-        x = self.stage1(x)     # (B, base_ch*2, 13, 16)
-        x = self.stage2(x)     # (B, base_ch*4, 13, 16)
-        x = self.out_proj(x)   # (B, 128, 13, 16)
-        return x               # 保持 13×16 原生分辨率
+        f1 = self.stage1(x)    # (B, base_ch*2, 13, 16)  跳跃连接 1
+        x = self.stage2(f1)    # (B, base_ch*4, 13, 16)
+        x = self.se(x)         # (B, base_ch*4, 13, 16)
+        f2 = x                 # (B, base_ch*4, 13, 16)  跳跃连接 2
+        x = self.out_proj(x)   # (B, out_channels, 13, 16)
+        return x, [f1, f2]
 
 
 class GridSampler(nn.Module):
@@ -174,6 +232,78 @@ class SimpleGNNLayer(nn.Module):
         return h
 
 
+class GATv2Layer(nn.Module):
+    """
+    GATv2 图注意力层 — 多头动态注意力
+    - 注意力系数同时依赖 sender 和 receiver 节点特征（比 GAT 更动态）
+    - 边特征作为注意力偏置
+    - 输出维度必须能被 n_heads 整除
+    """
+    def __init__(self, in_dim: int, out_dim: int, dropout: float = 0.1,
+                 n_heads: int = 4, edge_dim: int = 0):
+        super().__init__()
+        self.n_heads = n_heads
+        self.head_dim = out_dim // n_heads
+        assert out_dim % n_heads == 0, \
+            f"out_dim({out_dim}) 必须能被 n_heads({n_heads}) 整除"
+
+        self.W_q = nn.Linear(in_dim, out_dim, bias=False)
+        self.W_k = nn.Linear(in_dim, out_dim, bias=False)
+        self.W_v = nn.Linear(in_dim, out_dim, bias=False)
+
+        attn_in = self.head_dim * 2 + edge_dim
+        self.a = nn.Sequential(
+            nn.Linear(attn_in, self.head_dim, bias=False),
+            nn.LeakyReLU(0.2),
+            nn.Linear(self.head_dim, 1, bias=False),
+        )
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, edge_idx, edge_weight, edge_feat=None):
+        B, N, D = x.shape
+        device = x.device
+        src, dst = edge_idx
+
+        # 线性投影 + 多头拆分
+        Q = self.W_q(x).view(B, N, self.n_heads, self.head_dim)
+        K = self.W_k(x).view(B, N, self.n_heads, self.head_dim)
+        V = self.W_v(x).view(B, N, self.n_heads, self.head_dim)
+
+        # 每条边的 sender Q 和 receiver K
+        Q_src = Q[:, src]  # (B, E, n_heads, head_dim)
+        K_dst = K[:, dst]  # (B, E, n_heads, head_dim)
+
+        # 注意力分数计算 (GATv2: concat Q||K + leaky_relu + linear)
+        attn_input = torch.cat([Q_src, K_dst], dim=-1)
+        if edge_feat is not None:
+            ef = edge_feat.unsqueeze(0).unsqueeze(2).expand(B, -1, self.n_heads, -1)
+            attn_input = torch.cat([attn_input, ef], dim=-1)
+
+        e = self.a(attn_input).squeeze(-1)                     # (B, E, n_heads)
+        e = e + torch.log(edge_weight.clamp_min(1e-12)).view(1, -1, 1)
+
+        # 对每个目标节点的入边分别做 softmax，而不是对全图所有边归一化。
+        dst_index = dst.view(1, -1, 1).expand(B, -1, self.n_heads)
+        max_per_dst = torch.full((B, N, self.n_heads), -float('inf'),
+                                 device=device, dtype=e.dtype)
+        max_per_dst.scatter_reduce_(1, dst_index, e, reduce='amax',
+                                    include_self=True)
+        e_max = max_per_dst.gather(1, dst_index)
+        exp_e = torch.exp(e - e_max)
+        denom = torch.zeros(B, N, self.n_heads, device=device, dtype=e.dtype)
+        denom.scatter_add_(1, dst_index, exp_e)
+        alpha = exp_e / (denom.gather(1, dst_index) + 1e-12)   # (B, E, n_heads)
+        alpha = self.dropout(alpha)
+
+        # 消息聚合
+        msg = V[:, src] * alpha.unsqueeze(-1)                  # (B, E, n_heads, head_dim)
+        x_agg = torch.zeros(B, N, self.n_heads, self.head_dim,
+                            device=device, dtype=msg.dtype)
+        x_agg.scatter_add_(1, dst.view(1, -1, 1, 1).expand(B, -1, self.n_heads, self.head_dim), msg)
+        x_agg = x_agg.contiguous().view(B, N, -1)             # (B, N, out_dim)
+        return x_agg
+
+
 class ConvSpatialEIT(nn.Module):
     """
     Conv-Spatial EIT 模型 v2
@@ -191,21 +321,24 @@ class ConvSpatialEIT(nn.Module):
                  hidden_dim: int = 256,
                  gnn_layers: int = 4,
                  gnn_hidden: int = 256,
-                 dropout: float = 0.1,
-                 sigma_min: float = 0.005,
-                 sigma_max: float = 0.1):
+                dropout: float = 0.1,
+                sigma_min: float = 0.005,
+                 sigma_max: float = 0.1,
+                 use_gat: bool = True,
+                 n_heads: int = 4):
         super().__init__()
 
         self.n_elems = n_elems
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
+        self.use_gat = use_gat
+        self.n_heads = n_heads
 
         # 0. 多频融合层（6频 → 1频，自动学习权重）
-        self.freq_fusion = nn.Conv2d(in_channels=n_frequencies, out_channels=1,
-                                      kernel_size=1, bias=False)
+        self.freq_fusion = FrequencyCrossAttention(n_freq=n_frequencies, d_model=64)
 
         # 1. Conv Encoder（单频输入）
-        self.encoder = ConvEncoder(in_channels=1, base_ch=48)
+        self.encoder = ConvEncoder(in_channels=1, base_ch=96)
 
         # 2. Grid Sampler
         self.sampler = GridSampler()
@@ -253,20 +386,27 @@ class ConvSpatialEIT(nn.Module):
             for node in elements[i]:
                 node_to_elems[int(node)].append(i)
 
-        edges = set()
+        undirected_edges = set()
         for elems in node_to_elems.values():
             for a in range(len(elems)):
                 for b in range(a + 1, len(elems)):
-                    edges.add((min(elems[a], elems[b]), max(elems[a], elems[b])))
+                    i, j = int(elems[a]), int(elems[b])
+                    if i != j:
+                        undirected_edges.add((min(i, j), max(i, j)))
 
-        edge_list = np.array(list(edges), dtype=np.int64).T  # (2, n_edges)
+        directed_edges = []
+        for i, j in sorted(undirected_edges):
+            directed_edges.append((i, j))
+            directed_edges.append((j, i))
+        directed_edges.extend((i, i) for i in range(n_elems))
+        edge_list = np.array(directed_edges, dtype=np.int64).T  # (2, n_edges)
 
-        deg = np.zeros(n_elems, dtype=np.float32)
-        for i, j in edges:
+        deg = np.ones(n_elems, dtype=np.float32)  # self-loop
+        for i, j in undirected_edges:
             deg[i] += 1.0
             deg[j] += 1.0
         deg = np.sqrt(deg) + 1e-8
-        edge_weight = np.ones(len(edges), dtype=np.float32)
+        edge_weight = np.ones(edge_list.shape[1], dtype=np.float32)
         edge_weight /= deg[edge_list[0]] * deg[edge_list[1]]
 
         self._edge_idx = torch.from_numpy(edge_list).long()
@@ -277,12 +417,13 @@ class ConvSpatialEIT(nn.Module):
         edge_feat = np.zeros((n_edges, 4), dtype=np.float32)
         # 特征0: 单元中心距离 (归一化到 [0,1])
         max_dist = np.max(np.abs(centers[:, :2])) * 2 + 1e-8
+        element_nodes = [set(map(int, tri)) for tri in elements]
         for e_idx, (i, j) in enumerate(zip(edge_list[0], edge_list[1])):
             ci, cj = centers[i, :2], centers[j, :2]
             dist = np.linalg.norm(ci - cj)
             edge_feat[e_idx, 0] = dist / (dist + 0.002)  # 归一化到~[0,1]
             # 特征1: 共享节点数 / 3
-            shared = len(set(elements[i]) & set(elements[j]))
+            shared = len(element_nodes[i] & element_nodes[j])
             edge_feat[e_idx, 1] = shared / 3.0
             # 特征2: 单元中心相对方向 (单位向量的 dot product ≈ 面积比)
             ri = np.linalg.norm(ci) / max_dist
@@ -320,16 +461,30 @@ class ConvSpatialEIT(nn.Module):
         self.pos_dim = pe.shape[1]
 
         # ── 重建 GNN（第一层输入维度 = Conv通道 + 位置编码维度）──
-        gnn_in_dim = 128 + self.pos_dim
-        self.gnn_blocks = nn.ModuleList([
-            SimpleGNNLayer(
-                gnn_in_dim if i == 0 else self.gnn_hidden,
-                self.gnn_hidden,
-                self.gnn_dropout,
-                edge_dim=edge_dim,
-            )
-            for i in range(self.gnn_layers)
-        ])
+        gnn_in_dim = self.encoder.total_out_channels + self.pos_dim
+        if self.use_gat:
+            # GATv2 多头注意力图卷积
+            self.gnn_blocks = nn.ModuleList([
+                GATv2Layer(
+                    gnn_in_dim if i == 0 else self.gnn_hidden,
+                    self.gnn_hidden,
+                    dropout=self.gnn_dropout,
+                    n_heads=self.n_heads,
+                    edge_dim=edge_dim,
+                )
+                for i in range(self.gnn_layers)
+            ])
+        else:
+            # SimpleGNN 回退（消融实验用）
+            self.gnn_blocks = nn.ModuleList([
+                SimpleGNNLayer(
+                    gnn_in_dim if i == 0 else self.gnn_hidden,
+                    self.gnn_hidden,
+                    self.gnn_dropout,
+                    edge_dim=edge_dim,
+                )
+                for i in range(self.gnn_layers)
+            ])
 
         # ── Jacobian 残差反投影 (Phase 1新增) ──
         self.sigma_ref = sigma_ref
@@ -352,7 +507,7 @@ class ConvSpatialEIT(nn.Module):
             self.register_buffer('J_T', torch.zeros(1, 1))
             self.correction_head = nn.Identity()
 
-        print(f"  [ConvSpatial] 网格: {n_elems} 单元, {len(edges)} 条边, "
+        print(f"  [ConvSpatial] 网格: {n_elems} 单元, {edge_list.shape[1]} 条有向边, "
               f"位置编码: {self.pos_dim}维"
               + (f", Jᵀr: 已启用" if self._has_jacobian else ""))
 
@@ -381,14 +536,21 @@ class ConvSpatialEIT(nn.Module):
         x = x / amax
 
         # 1. Conv 编码
-        feat = self.encoder(x)  # (B, 128, 13, 16)
+        feat, skip_feats = self.encoder(x)  # (B, 256, 13, 16), [skip1, skip2]
 
         # 2. Grid Sampling
-        node_feat = self.sampler(feat)  # (B, n_elems, 128)
+        node_feat = self.sampler(feat)  # (B, n_elems, 256)
+
+        # 2b. 跳跃连接采样
+        skip_sampled = []
+        for sf in skip_feats:
+            ss = self.sampler(sf)
+            skip_sampled.append(ss)
 
         # 3. 拼接位置编码（P0-2）
         pe = self.pos_encoding.to(device).unsqueeze(0).expand(B, -1, -1)
-        node_feat = torch.cat([node_feat, pe], dim=-1)  # (B, n_elems, 128+pos_dim)
+        node_feat = torch.cat([node_feat] + skip_sampled, dim=-1)  # (B, n_elems, 832)
+        node_feat = torch.cat([node_feat, pe], dim=-1)  # (B, n_elems, 832+pos_dim)
 
         # 4. GNN
         h = node_feat

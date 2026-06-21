@@ -22,6 +22,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from pathlib import Path
+from multiprocessing import cpu_count
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -29,6 +30,7 @@ from models.conv_spatial_eit import ConvSpatialEIT
 from data.datasets.eit_dataset import MemoryEITDataset
 from data.eit_forward import EITForwardSolver
 from training.recorder import TrainingRecorder
+from training.loss import edge_weighted_mse, AdaptiveLossWeighter
 
 
 def get_mesh_data(config_path):
@@ -38,6 +40,42 @@ def get_mesh_data(config_path):
     if centers.shape[1] > 2:
         centers = centers[:, :2]
     return centers, solver.mesh.element, solver.n_elems, solver
+
+
+def voltage_masking(V, mask_ratio=0.15):
+    """电压掩码数据增强: 以 mask_ratio 概率随机遮盖电压通道"""
+    if mask_ratio > 0:
+        mask = torch.rand_like(V) > mask_ratio
+        return V * mask
+    return V
+
+
+def extract_model_state(ckpt):
+    """兼容 raw state_dict、{'model': ...}、{'model_state_dict': ...} 三种格式。"""
+    if isinstance(ckpt, dict):
+        for key in ("model", "model_state_dict"):
+            if key in ckpt and isinstance(ckpt[key], dict):
+                return ckpt[key]
+    return ckpt
+
+
+def reset_ema_to_model(ema_model, model):
+    ema_model.module.load_state_dict(model.state_dict())
+    if hasattr(ema_model, "n_averaged"):
+        ema_model.n_averaged.zero_()
+
+
+def update_ema(ema_model, model, decay):
+    """手动 EMA，同时同步 BN 等 buffers，避免验证时使用初始统计量。"""
+    ema_module = ema_model.module
+    with torch.no_grad():
+        for ema_p, p in zip(ema_module.parameters(), model.parameters()):
+            ema_p.data.mul_(decay).add_(p.data, alpha=1 - decay)
+        for ema_b, b in zip(ema_module.buffers(), model.buffers()):
+            if torch.is_floating_point(ema_b):
+                ema_b.data.mul_(decay).add_(b.data, alpha=1 - decay)
+            else:
+                ema_b.data.copy_(b.data)
 
 
 def train():
@@ -65,8 +103,9 @@ def train():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if device.type == 'cuda':
         print(f"设备: {torch.cuda.get_device_name(0)}  ({torch.cuda.get_device_properties(0).total_memory/1e9:.1f} GB)")
-        torch.set_float32_matmul_precision('high')
-        print("  TF32 矩阵乘法加速: 已启用")
+        if hasattr(torch, "set_float32_matmul_precision"):
+            torch.set_float32_matmul_precision('high')
+            print("  TF32 矩阵乘法加速: 已启用")
     else:
         print(f"设备: CPU")
 
@@ -195,23 +234,41 @@ def train():
     # torch.compile 暂不兼容(位置编码buffer跨设备问题), 后续适配
     # model = torch.compile(model)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr,
-                                  weight_decay=1e-6, fused=True)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.epochs_sup + args.epochs_unsup)
+    criterion = edge_weighted_mse  # 边缘加权 MSE（有监督+半监督共用）
+    adaptive_weighter = None
+    optim_params = list(model.parameters())
+    if args.mode in ("unsupervised", "both"):
+        adaptive_weighter = AdaptiveLossWeighter(n_losses=4).to(device)
+        optim_params += list(adaptive_weighter.parameters())
+
+    optimizer = torch.optim.AdamW(optim_params, lr=args.lr, weight_decay=1e-6)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=20, T_mult=2)
+
+    # ── EMA 指数移动平均 ──
+    ema_model = torch.optim.swa_utils.AveragedModel(model).to(device)
+    ema_decay = 0.999
+    reset_ema_to_model(ema_model, model)
 
     if args.resume:
         ckpt = torch.load(args.resume, map_location=device)
-        model.load_state_dict(ckpt['model'])
-        if 'optimizer' in ckpt:
+        model.load_state_dict(extract_model_state(ckpt))
+        if (adaptive_weighter is not None and isinstance(ckpt, dict)
+                and ckpt.get('adaptive_weighter') is not None):
+            adaptive_weighter.load_state_dict(ckpt['adaptive_weighter'])
+            print(f"  恢复自适应损失权重")
+        if isinstance(ckpt, dict) and 'optimizer' in ckpt:
             optimizer.load_state_dict(ckpt['optimizer'])
             print(f"  恢复优化器状态")
-        if 'scheduler' in ckpt:
+        if isinstance(ckpt, dict) and 'scheduler' in ckpt:
             scheduler.load_state_dict(ckpt['scheduler'])
             print(f"  恢复调度器状态")
+        if isinstance(ckpt, dict) and 'ema_model' in ckpt:
+            ema_model.load_state_dict(ckpt['ema_model'])
+            print(f"  恢复EMA模型权重")
+        else:
+            reset_ema_to_model(ema_model, model)
         print(f"恢复: {args.resume}")
-
-    criterion = nn.MSELoss()  # 共享损失函数（有监督+半监督共用）
 
     # ============ 3. 有监督预训练 ============
     if args.mode in ("supervised", "both"):
@@ -220,7 +277,7 @@ def train():
         print("=" * 50)
 
         best_re = float('inf')
-        scaler = torch.amp.GradScaler()
+        scaler = torch.cuda.amp.GradScaler(enabled=device.type == 'cuda')
 
         for epoch in range(1, args.epochs_sup + 1):
             model.train()
@@ -230,9 +287,10 @@ def train():
                 S = batch['sigmas'].to(device)     # (B, n_elems)
                 B = V.shape[0]
                 V_img = V.view(B, 6, 13, 16)
+                V_img = voltage_masking(V_img, mask_ratio=0.15)  # 电压掩码增强
 
                 optimizer.zero_grad()
-                with torch.amp.autocast('cuda'):
+                with torch.cuda.amp.autocast(enabled=device.type == 'cuda'):
                     out = model(V_img)
                     loss = criterion(out['sigma'], S)
 
@@ -251,19 +309,20 @@ def train():
 
                 scaler.step(optimizer)
                 scaler.update()
+                update_ema(ema_model, model, ema_decay)
                 epoch_loss += loss.item()
 
             scheduler.step()
 
             # 验证
-            model.eval()
+            ema_model.eval()
             val_loss = 0.0
             all_pred, all_gt = [], []
             with torch.no_grad():
                 for batch in val_loader:
                     V = batch['voltages'].to(device).view(-1, 6, 13, 16)
                     S = batch['sigmas'].to(device)
-                    out = model(V)
+                    out = ema_model(V)
                     val_loss += criterion(out['sigma'], S).item()
                     all_pred.append(out['sigma'].cpu())
                     all_gt.append(S.cpu())
@@ -283,7 +342,17 @@ def train():
             if re < best_re:
                 best_re = re
                 os.makedirs("checkpoints", exist_ok=True)
-                torch.save(model.state_dict(), "checkpoints/conv_spatial_best.pt")
+                torch.save({
+                    'model': model.state_dict(),
+                    'ema_model': ema_model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                    'adaptive_weighter': adaptive_weighter.state_dict() if adaptive_weighter is not None else None,
+                    'n_elems': n_elems,
+                    'hidden_dim': args.hidden_dim,
+                    'gnn_hidden': args.hidden_dim,
+                    'gnn_layers': args.gnn_layers,
+                }, "checkpoints/conv_spatial_best.pt")
                 print(f"  → 保存最佳模型 (RE={best_re:.4f})")
                 recorder.log_event("best_model_saved", re=best_re.item(),
                                    path="checkpoints/conv_spatial_best.pt")
@@ -301,7 +370,13 @@ def train():
         # 加载最佳有监督模型
         ckpt_path = "checkpoints/conv_spatial_best.pt"
         if os.path.exists(ckpt_path):
-            model.load_state_dict(torch.load(ckpt_path, map_location=device))
+            best_ckpt = torch.load(ckpt_path, map_location=device)
+            if isinstance(best_ckpt, dict) and 'ema_model' in best_ckpt:
+                ema_model.load_state_dict(best_ckpt['ema_model'])
+                model.load_state_dict(ema_model.module.state_dict())
+            else:
+                model.load_state_dict(extract_model_state(best_ckpt))
+                reset_ema_to_model(ema_model, model)
             print(f"加载有监督预训练权重: {ckpt_path}")
 
         if device.type == 'cuda' and args.wandb:
@@ -333,16 +408,21 @@ def train():
             mesh_nodes=torch.from_numpy(solver.mesh.node[:, :2]).float(),
         )
         sdl = SigmaDeviationLoss(sigma_ref_value=0.01)
+        if adaptive_weighter is None:
+            adaptive_weighter = AdaptiveLossWeighter(n_losses=4).to(device)
+            optimizer.add_param_group({"params": adaptive_weighter.parameters()})
 
         for epoch in range(1, args.epochs_unsup + 1):
             model.train()
+            adaptive_weighter.train()
             epoch_loss = 0.0
             for batch in tqdm(train_loader, desc=f"Unsup Epoch {epoch}"):
                 V = batch['voltages'].to(device).view(-1, 6, 13, 16)
+                V = voltage_masking(V, mask_ratio=0.15)  # 电压掩码增强
                 S_gt = batch['sigmas'].to(device)  # GT 用于半监督锚点
 
                 optimizer.zero_grad()
-                with torch.amp.autocast('cuda'):
+                with torch.cuda.amp.autocast(enabled=device.type == 'cuda'):
                     out = model(V)
                     sp = out['sigma']
 
@@ -350,11 +430,14 @@ def train():
                     loss_t = tvl(sp)
                     loss_d = sdl(sp)
                     loss_sup = criterion(sp, S_gt)  # 半监督锚点
-                    # 混合: 30% 有监督锚点 + 70% 物理约束
-                    total = (0.3 * loss_sup +
-                             0.5 * loss_m +
-                             0.1 * loss_t +
-                             0.1 * loss_d)
+                    # 自适应损失加权（替代手动固定权重）
+                    loss_dict = {
+                        "loss_sup": loss_sup,
+                        "loss_m": loss_m,
+                        "loss_t": loss_t,
+                        "loss_d": loss_d,
+                    }
+                    total = adaptive_weighter(loss_dict)
 
                 # 跳过异常 batch
                 if torch.isnan(total) or torch.isinf(total) or total.item() > 10.0:
@@ -366,6 +449,7 @@ def train():
                 if grad_norm > 2.0:
                     print(f"  ⚠ 大梯度: {grad_norm:.2f} | loss={total.item():.4f}")
                 optimizer.step()
+                update_ema(ema_model, model, ema_decay)
                 epoch_loss += total.item()
 
             scheduler.step()
@@ -378,8 +462,10 @@ def train():
                 ckpt_path = f"checkpoints/conv_spatial_unsup_epoch{epoch}.pt"
                 torch.save({
                     'model': model.state_dict(),
+                    'ema_model': ema_model.state_dict(),
                     'optimizer': optimizer.state_dict(),
                     'scheduler': scheduler.state_dict(),
+                    'adaptive_weighter': adaptive_weighter.state_dict(),
                     'epoch': epoch,
                     'loss': epoch_loss / len(train_loader),
                     'n_elems': n_elems,
@@ -395,6 +481,8 @@ def train():
     save_path = "checkpoints/conv_spatial_final.pt"
     torch.save({
         'model': model.state_dict(),
+        'ema_model': ema_model.state_dict(),
+        'adaptive_weighter': adaptive_weighter.state_dict() if adaptive_weighter is not None else None,
         'n_elems': n_elems,
         'hidden_dim': args.hidden_dim,
         'gnn_hidden': args.hidden_dim,
