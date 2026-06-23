@@ -405,39 +405,40 @@ body::after {
     <!-- ===== Stats ===== -->
     <div class="stats-bar">
         <div class="stat-item">
-            <div class="stat-value">0.149</div>
-            <div class="stat-label">单圆验证 RE</div>
+            <div class="stat-value">0.108</div>
+            <div class="stat-label">最佳 RE</div>
         </div>
         <div class="stat-item">
-            <div class="stat-value">0.957</div>
-            <div class="stat-label">单圆验证 CC</div>
+            <div class="stat-value">0.976</div>
+            <div class="stat-label">最佳 CC</div>
         </div>
         <div class="stat-item">
-            <div class="stat-value">0.151</div>
-            <div class="stat-label">有监督 RE</div>
+            <div class="stat-value">0.928</div>
+            <div class="stat-label">IoU</div>
         </div>
         <div class="stat-item">
-            <div class="stat-value">0.954</div>
-            <div class="stat-label">有监督 CC</div>
+            <div class="stat-value">0.961</div>
+            <div class="stat-label">Dice</div>
         </div>
         <div class="stat-item">
-            <div class="stat-value">201 万</div>
-            <div class="stat-label">模型参数量</div>
+            <div class="stat-value">28.8 dB</div>
+            <div class="stat-label">PSNR</div>
         </div>
         <div class="stat-item">
-            <div class="stat-value">11,466</div>
-            <div class="stat-label">网格单元数</div>
+            <div class="stat-value">0.994</div>
+            <div class="stat-label">SSIM</div>
         </div>
     </div>
 
     <!-- ===== Cards ===== -->
     <div class="cards-grid">
-        <a href="/docs/conv_spatial_eit_paper.html" style="text-decoration:none;display:block;">
+        <a href="/docs/paper_versions.html" style="text-decoration:none;display:block;">
         <div class="card">
             <div class="card-icon">📄</div>
             <h3>论文全文</h3>
             <p>Conv-Spatial EIT 完整论文，包含算法描述、实验结果与分析。</p>
-            <span class="card-tag">HTML 双栏排版</span>
+            <span class="card-tag" style="background:rgba(34,211,238,0.15);color:#22d3ee;">V2 最新</span>
+            <span class="card-tag">多版本</span>
         </div>
         </a>
 
@@ -486,12 +487,16 @@ body::after {
     <div class="model-info">
         <div class="model-info-grid">
             <div class="model-info-item">
-                <div class="value">Conv2D → GNN</div>
+                <div class="value">FreqAttn + Conv + GNN</div>
                 <div class="label">网络架构</div>
             </div>
             <div class="model-info-item">
                 <div class="value">4 层</div>
                 <div class="label">GNN 层数</div>
+            </div>
+            <div class="model-info-item">
+                <div class="value">256 维</div>
+                <div class="label">隐藏层维度</div>
             </div>
             <div class="model-info-item">
                 <div class="value">35 维</div>
@@ -506,10 +511,39 @@ body::after {
                 <div class="label">优化器</div>
             </div>
             <div class="model-info-item">
-                <div class="value">Cosine</div>
+                <div class="value">CosineAnnealing</div>
                 <div class="label">学习率调度</div>
             </div>
+            <div class="model-info-item">
+                <div class="value">6.1M</div>
+                <div class="label">参数量</div>
+            </div>
+            <div class="model-info-item">
+                <div class="value">6 频 × 208 通道</div>
+                <div class="label">输入维度</div>
+            </div>
+            <div class="model-info-item">
+                <div class="value">~1.5 ms</div>
+                <div class="label">推理速度 / 样本</div>
+            </div>
+            <div class="model-info-item">
+                <div class="value">11466</div>
+                <div class="label">FEM 单元数</div>
+            </div>
         </div>
+    </div>
+    
+    <!-- ===== Architecture Diagram ===== -->
+    <div class="section-title" style="margin-top:20px;">
+        <h2>架构图</h2>
+        <div class="line"></div>
+    </div>
+    <div style="text-align:center;margin-bottom:30px;">
+        <a href="/docs/architecture_modern.png" target="_blank">
+            <img src="/docs/architecture_modern.png" alt="ConvSpatialEIT 架构图"
+                 style="max-width:100%;border-radius:12px;border:1px solid rgba(59,130,246,0.15);">
+        </a>
+        <p style="color:#667788;font-size:12px;margin-top:8px;">点击放大 · 完整架构: FreqCrossAttn → ConvEncoder → GridSampler + PE → 4×SimpleGNN → OutputHead</p>
     </div>
 
     <!-- ===== Results Gallery ===== -->
@@ -587,6 +621,110 @@ body::after {
             <div class="info">
                 <h4>边缘采样策略测试</h4>
                 <p>位置平衡采样验证</p>
+            </div>
+            </a>
+        </div>
+
+    </div>
+
+    <!-- ===== Best Model Results ===== -->
+    <div class="section-title" style="margin-top:30px;">
+        <h2>最佳模型评估结果</h2>
+        <div class="line"></div>
+    </div>
+    <div class="model-info" style="margin-bottom:20px;">
+        <p style="color:#8899aa;font-size:13px;margin-bottom:12px;">
+            模型: <span style="color:#60a5fa;">conv_spatial_best.pt</span> · hidden_dim=512 · gnn_layers=4
+        </p>
+        <div class="model-info-grid">
+            <div class="model-info-item">
+                <div class="value">0.108</div>
+                <div class="label">相对误差 RE</div>
+            </div>
+            <div class="model-info-item">
+                <div class="value">0.976</div>
+                <div class="label">相关系数 CC</div>
+            </div>
+            <div class="model-info-item">
+                <div class="value">0.928</div>
+                <div class="label">IoU</div>
+            </div>
+            <div class="model-info-item">
+                <div class="value">0.961</div>
+                <div class="label">Dice</div>
+            </div>
+        </div>
+    </div>
+    <div class="gallery">
+
+        <div class="gallery-item">
+            <a href="/results/validation_best_v2/batch_comparison.png">
+            <div class="img-wrap">
+                <img src="/results/thumbs/batch_comparison.png" alt="批量对比" loading="lazy">
+            </div>
+            <div class="info">
+                <h4>批量重建对比</h4>
+                <p>Ground Truth vs Prediction 多样本展示</p>
+            </div>
+            </a>
+        </div>
+
+        <div class="gallery-item">
+            <a href="/results/validation_best_v2/correlation.png">
+            <div class="img-wrap">
+                <img src="/results/thumbs/correlation.png" alt="相关性分析" loading="lazy">
+            </div>
+            <div class="info">
+                <h4>预测-真值相关性</h4>
+                <p>CC=0.976 高度线性相关</p>
+            </div>
+            </a>
+        </div>
+
+        <div class="gallery-item">
+            <a href="/results/validation_best_v2/metrics_histogram.png">
+            <div class="img-wrap">
+                <img src="/results/thumbs/metrics_histogram.png" alt="指标分布" loading="lazy">
+            </div>
+            <div class="info">
+                <h4>评估指标分布</h4>
+                <p>RE/CC/SSIM/PSNR 直方图</p>
+            </div>
+            </a>
+        </div>
+
+        <div class="gallery-item">
+            <a href="/results/validation_best_v2/samples/sample_best_1_RE0.0553.png">
+            <div class="img-wrap">
+                <img src="/results/thumbs/sample_best_1_RE0.0553.png" alt="最佳样本" loading="lazy">
+            </div>
+            <div class="info">
+                <h4>最佳重建样本</h4>
+                <p>RE=0.055 · 极高精度重建</p>
+            </div>
+            </a>
+        </div>
+
+        <div class="gallery-item">
+            <a href="/results/validation_best_v2/samples/sample_median_1_RE0.1018.png">
+            <div class="img-wrap">
+                <img src="/results/thumbs/sample_median_1_RE0.1018.png" alt="中位数样本" loading="lazy">
+            </div>
+            <div class="info">
+                <h4>中位数质量样本</h4>
+                <p>RE=0.102 · 典型重建效果</p>
+            </div>
+            </a>
+        </div>
+
+        <div class="gallery-item">
+            <a href="/results/validation_best_v2/samples/sample_worst_1_RE0.2385.png">
+            <div class="img-wrap">
+                <img src="/results/thumbs/sample_worst_1_RE0.2385.png" alt="最差样本" loading="lazy">
+            </div>
+            <div class="info">
+                <h4>最差重建样本</h4>
+                <p>RE=0.239 · 边缘案例</p>
             </div>
             </a>
         </div>
