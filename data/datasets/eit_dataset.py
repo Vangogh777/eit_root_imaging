@@ -35,7 +35,8 @@ class EITDataset(Dataset):
     def __init__(self, h5_path: str, split: str = "train",
                  load_sigmas: bool = True, load_masks: bool = True,
                  voltage_mask_ratio: float = 0.0,
-                 jacobian_path: Optional[str] = None):
+                 jacobian_path: Optional[str] = None,
+                 load_residual_features: bool = False):
         """
         参数:
             h5_path: HDF5 数据集路径
@@ -50,6 +51,12 @@ class EITDataset(Dataset):
         self.load_sigmas = load_sigmas
         self.load_masks = load_masks
         self.voltage_mask_ratio = voltage_mask_ratio
+        self.load_residual_features = load_residual_features
+        if self.load_residual_features and self.voltage_mask_ratio > 0:
+            raise ValueError(
+                "load_residual_features=True 时不能使用 voltage_mask_ratio。"
+                "预计算的 physics_g/voltage_residual 与被 mask 的电压不一致。"
+            )
 
         # 打开 HDF5 读取元数据
         with h5py.File(h5_path, 'r') as f:
@@ -58,6 +65,18 @@ class EITDataset(Dataset):
             self.n_freq = grp['voltages'].shape[1]
             self.n_meas = grp['voltages'].shape[2]
             self.n_elems = grp['sigmas'].shape[1]
+            self.has_residual_features = all(
+                key in grp for key in ('sigma_0', 'physics_g', 'voltage_residual')
+            )
+            if self.load_residual_features and not self.has_residual_features:
+                missing = [
+                    key for key in ('sigma_0', 'physics_g', 'voltage_residual')
+                    if key not in grp
+                ]
+                raise KeyError(
+                    f"{h5_path}:{split} 缺少残差特征 {missing}。"
+                    "请先运行 data/precompute_residual_features.py"
+                )
 
             # 缓存网格元数据
             meta = f['metadata']
@@ -88,6 +107,15 @@ class EITDataset(Dataset):
             sigma = torch.from_numpy(grp['sigmas'][idx]).float()
             mask = torch.from_numpy(grp['masks'][idx]).float()
             noise_db = torch.tensor(grp['noise_db'][idx], dtype=torch.float32)
+            if self.load_residual_features:
+                sigma_0 = torch.from_numpy(grp['sigma_0'][idx]).float()
+                physics_g = torch.from_numpy(grp['physics_g'][idx]).float()
+                voltage_residual = torch.from_numpy(grp['voltage_residual'][idx]).float()
+                coarse_residual_norm = torch.tensor(
+                    grp['coarse_residual_norm'][idx]
+                    if 'coarse_residual_norm' in grp else np.nan,
+                    dtype=torch.float32,
+                )
 
         # --- 电压掩码增强 ---
         if self.voltage_mask_ratio > 0 and self.split == 'train':
@@ -104,6 +132,14 @@ class EITDataset(Dataset):
             'noise_db': noise_db,
             'idx': idx,
         }
+
+        if self.load_residual_features:
+            sample.update({
+                'sigma_0': sigma_0,
+                'physics_g': physics_g,
+                'voltage_residual': voltage_residual,
+                'coarse_residual_norm': coarse_residual_norm,
+            })
 
         # 缓存（限制缓存大小）
         if len(self._cache) < 1000:
@@ -124,11 +160,18 @@ class MemoryEITDataset(Dataset):
 
     def __init__(self, h5_path: str, split: str = "train",
                  load_sigmas: bool = True, load_masks: bool = True,
-                 voltage_mask_ratio: float = 0.0):
+                 voltage_mask_ratio: float = 0.0,
+                 load_residual_features: bool = False):
         self.split = split
         self.load_sigmas = load_sigmas
         self.load_masks = load_masks
         self.voltage_mask_ratio = voltage_mask_ratio
+        self.load_residual_features = load_residual_features
+        if self.load_residual_features and self.voltage_mask_ratio > 0:
+            raise ValueError(
+                "load_residual_features=True 时不能使用 voltage_mask_ratio。"
+                "预计算的 physics_g/voltage_residual 与被 mask 的电压不一致。"
+            )
 
         # 一次性全部加载到内存
         import time
@@ -138,6 +181,27 @@ class MemoryEITDataset(Dataset):
             self.voltages = grp['voltages'][:]   # (N, F, M)
             self.sigmas = grp['sigmas'][:]        # (N, E)
             self.masks = grp['masks'][:] if 'masks' in grp else None
+            self.has_residual_features = all(
+                key in grp for key in ('sigma_0', 'physics_g', 'voltage_residual')
+            )
+            if self.load_residual_features and not self.has_residual_features:
+                missing = [
+                    key for key in ('sigma_0', 'physics_g', 'voltage_residual')
+                    if key not in grp
+                ]
+                raise KeyError(
+                    f"{h5_path}:{split} 缺少残差特征 {missing}。"
+                    "请先运行 data/precompute_residual_features.py"
+                )
+            if self.load_residual_features:
+                self.sigma_0 = grp['sigma_0'][:]
+                self.physics_g = grp['physics_g'][:]
+                self.voltage_residual = grp['voltage_residual'][:]
+                self.coarse_residual_norm = (
+                    grp['coarse_residual_norm'][:]
+                    if 'coarse_residual_norm' in grp
+                    else np.full(self.voltages.shape[0], np.nan, dtype=np.float32)
+                )
 
             meta = f['metadata']
             self.mesh_nodes = meta['mesh_nodes'][:]
@@ -163,6 +227,15 @@ class MemoryEITDataset(Dataset):
         if self.load_masks and self.masks is not None:
             sample['masks'] = torch.from_numpy(self.masks[idx]).float()
 
+        if self.load_residual_features:
+            sample.update({
+                'sigma_0': torch.from_numpy(self.sigma_0[idx]).float(),
+                'physics_g': torch.from_numpy(self.physics_g[idx]).float(),
+                'voltage_residual': torch.from_numpy(self.voltage_residual[idx]).float(),
+                'coarse_residual_norm': torch.tensor(
+                    self.coarse_residual_norm[idx], dtype=torch.float32),
+            })
+
         # 电压掩码增强
         if self.voltage_mask_ratio > 0 and self.split == 'train':
             n_meas = V.shape[-1]
@@ -184,22 +257,26 @@ class EITDataModule:
                  val_batch_size: Optional[int] = None,
                  num_workers: int = 4, prefetch_factor: int = 2,
                  voltage_mask_ratio: float = 0.3,
-                 jacobian_path: Optional[str] = None):
+                 jacobian_path: Optional[str] = None,
+                 load_residual_features: bool = False):
 
         self.train_dataset = EITDataset(
             h5_path, split='train',
             voltage_mask_ratio=voltage_mask_ratio,
-            jacobian_path=jacobian_path
+            jacobian_path=jacobian_path,
+            load_residual_features=load_residual_features
         )
         self.val_dataset = EITDataset(
             h5_path, split='val',
             voltage_mask_ratio=0.0,
-            jacobian_path=jacobian_path
+            jacobian_path=jacobian_path,
+            load_residual_features=load_residual_features
         )
         self.test_dataset = EITDataset(
             h5_path, split='test',
             voltage_mask_ratio=0.0,
-            jacobian_path=jacobian_path
+            jacobian_path=jacobian_path,
+            load_residual_features=load_residual_features
         )
 
         self.batch_size = batch_size
@@ -208,33 +285,38 @@ class EITDataModule:
         self.prefetch_factor = prefetch_factor
 
     def train_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            prefetch_factor=self.prefetch_factor,
-            pin_memory=True,
-            drop_last=True
-        )
+        kwargs = {
+            'batch_size': self.batch_size,
+            'shuffle': True,
+            'num_workers': self.num_workers,
+            'pin_memory': True,
+            'drop_last': True,
+        }
+        if self.num_workers > 0:
+            kwargs['prefetch_factor'] = self.prefetch_factor
+        return DataLoader(self.train_dataset, **kwargs)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.val_batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True
-        )
+        kwargs = {
+            'batch_size': self.val_batch_size,
+            'shuffle': False,
+            'num_workers': self.num_workers,
+            'pin_memory': True,
+        }
+        if self.num_workers > 0:
+            kwargs['prefetch_factor'] = self.prefetch_factor
+        return DataLoader(self.val_dataset, **kwargs)
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.val_batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True
-        )
+        kwargs = {
+            'batch_size': self.val_batch_size,
+            'shuffle': False,
+            'num_workers': self.num_workers,
+            'pin_memory': True,
+        }
+        if self.num_workers > 0:
+            kwargs['prefetch_factor'] = self.prefetch_factor
+        return DataLoader(self.test_dataset, **kwargs)
 
 
 if __name__ == "__main__":

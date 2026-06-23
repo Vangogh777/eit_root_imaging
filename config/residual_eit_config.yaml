@@ -1,0 +1,43 @@
+# ResidualEIT route-B configuration.
+
+model:
+  name: "residual_eit"
+  hidden_dim: 256
+  gnn_layers: 4
+  dropout: 0.1
+  use_gat: true
+  n_heads: 4
+  sigma_min: 0.005
+  sigma_max: 0.1
+  delta_scale: 0.02
+
+physics:
+  sigma_ref: 0.01
+
+training:
+  batch_size: 16
+  val_batch_size: 32
+  epochs: 100
+  learning_rate: 3.0e-4
+  eta_min: 1.0e-6
+  weight_decay: 1.0e-5
+  grad_clip: 1.0
+  voltage_mask_ratio: 0.0
+
+  # For weak supervision set supervised to 0.1 or 0.01.
+  # For fully unsupervised training set supervised to 0.0.
+  loss_weights:
+    supervised: 1.0
+    residual_measurement: 1.0
+    tv: 0.03
+    delta_l1: 0.01
+    delta_smooth: 0.02
+
+data:
+  dataset_path: "./data/generated/eit_dataset.h5"
+  jacobian_path: "./data/generated/jacobian.npy"
+  num_workers: 4
+  prefetch_factor: 2
+
+output:
+  checkpoint_path: "checkpoints/residual_eit_best.pt"

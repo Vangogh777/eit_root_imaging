@@ -8,7 +8,11 @@
       "Bash(python -c \"from pyeit.mesh import wrapper; help\\(wrapper.create\\)\")",
       "Bash(python *)",
       "Bash(pip install *)",
-      "Bash(wandb login *)"
+      "Bash(wandb login *)",
+      "Bash(echo \"---EXIT:$?\")",
+      "Bash(git check-ignore *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)"
     ]
   }
 }

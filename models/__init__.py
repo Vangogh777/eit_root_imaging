@@ -3,3 +3,4 @@ from .shared_encoder import SharedEncoder
 from .base_layer_correction import BaseLayerCorrection
 from .frequency_fusion import FrequencyFusionDecoder
 from .resnet_backbone import ResNetBackbone
+from .residual_eit import ResidualEIT, ResidualComputer

@@ -8,4 +8,16 @@ from .loss import (
     AdaptiveLossWeighter,
 )
 from .optimizer import build_optimizer, build_scheduler
-from .unsupervised_loop import UnsupervisedTrainer
+from .residual_loss import (
+    ResidualMeasurementConsistencyLoss,
+    ResidualSparsityLoss,
+    ResidualSmoothnessLoss,
+    RelativeMSELoss,
+)
+
+
+def __getattr__(name):
+    if name == "UnsupervisedTrainer":
+        from .unsupervised_loop import UnsupervisedTrainer
+        return UnsupervisedTrainer
+    raise AttributeError(name)
