@@ -65,3 +65,6 @@ ENV/
 
 # wandb
 wandb/
+run_notify.sh
+notify.log
+start_notify.sh
