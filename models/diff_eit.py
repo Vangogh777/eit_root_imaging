@@ -300,8 +300,8 @@ class DiffEIT(nn.Module):
 
         if sigma_warm is not None:
             residual = sigma_0 - sigma_warm
-            sigma_t, noise = self.diffusion.forward_diffuse_residual(residual, t, noise_scale=0.5)
-            sigma_t = sigma_warm + residual if sigma_warm is not None else sigma_t
+            residual_t, noise = self.diffusion.forward_diffuse_residual(residual, t, noise_scale=0.5)
+            sigma_t = sigma_warm + residual_t
         else:
             sigma_t, noise = self.diffusion.forward_diffuse(sigma_0, t)
 
@@ -345,14 +345,13 @@ class DiffEIT(nn.Module):
         """
         if V.dim() == 2:
             # V: (n_freq, n_meas) → 单样本多频, reshape 为 (1, n_freq, n_meas)
-            V_mean = V.mean(dim=0)
             V_enc_input = V.unsqueeze(0)  # (1, n_freq, n_meas)
         elif V.dim() == 1:
-            V_mean = V
+            # V: (n_meas,) → 单频单样本
             V_enc_input = V.unsqueeze(0).unsqueeze(0)  # (1, 1, n_meas)
         else:
-            V_mean = V.squeeze(0) if V.dim() == 3 else V
-            V_enc_input = V  # already (B, n_freq, n_meas)
+            # V: already batched (B, n_freq, n_meas)
+            V_enc_input = V
 
         v_emb = self.voltage_encoder(V_enc_input)  # (1 or B, voltage_dim)
 

@@ -127,8 +127,8 @@ class DiffusionProcess:
 
         # 初始化: warm-start 模式用缩小噪声, 否则标准噪声
         if sigma_warm is not None:
-            # 残差扩散: 从较小噪声起步
-            sigma_t = sigma_warm + 0.3 * torch.randn(n_elems, device=device)
+            # 残差扩散: 初始噪声尺度与训练一致 (noise_scale=0.5)
+            sigma_t = sigma_warm + 0.5 * torch.randn(n_elems, device=device)
         else:
             sigma_t = torch.randn(n_elems, device=device)
 

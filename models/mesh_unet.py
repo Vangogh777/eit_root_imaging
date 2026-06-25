@@ -28,14 +28,11 @@ class FiLM(nn.Module):
             nn.Linear(cond_dim, feat_dim),
             nn.Tanh(),
         )
-        # 初始化: γ≈1, β≈0 → 条件初始不影响特征, 让网络逐渐学会利用
+        # 初始化: γ≈1, β≈0 → 条件初始不影响特征
         nn.init.zeros_(self.gamma[0].weight)
+        nn.init.constant_(self.gamma[0].bias, 2.0)   # Tanh(2) ≈ 0.96 ≈ 1
         nn.init.zeros_(self.beta[0].weight)
-        # bias 初始化为 0 (gamma 的 bias → 1 by Tanh(0)=0, so we want Tanh(b)=1 → b large
-        # 但 Tanh 对称, 零初始化 bias 意味着 γ≈0, β≈0.
-        # 用小的正 bias 让 gamma 初始接近 1
-        nn.init.constant_(self.gamma[0].bias, 0.5)
-        nn.init.zeros_(self.beta[0].bias)
+        nn.init.constant_(self.beta[0].bias, 0.0)    # Tanh(0) = 0
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
         """
@@ -111,8 +108,9 @@ class MeshUNet(nn.Module):
 
         # Bottleneck: Self-Attention + Cross-Attention to voltage
         self.bn_self_attn = nn.MultiheadAttention(h*2, num_heads=4, dropout=dropout, batch_first=True)
-        # Cross-attn: mesh nodes attend to voltage latent tokens
+        # Cross-attn: mesh nodes attend to learnable voltage-conditioned latent tokens
         self.v_latent_proj = nn.Linear(voltage_dim, h*2)
+        self.v_latent_tokens = nn.Parameter(torch.randn(4, h*2) * 0.02)  # learnable query bases
         self.bn_cross_attn = nn.MultiheadAttention(h*2, num_heads=4, dropout=dropout, batch_first=True)
 
         # ---- Decoder ----
@@ -210,9 +208,9 @@ class MeshUNet(nn.Module):
         x_self, _ = self.bn_self_attn(x, x, x)
         x = x + x_self  # Self-attn residual
 
-        # Cross-attention to voltage (mesh nodes query voltage latent)
-        v_latent = self.v_latent_proj(v_emb).unsqueeze(1)  # (B, 1, h*2)
-        v_latent = v_latent.expand(-1, 4, -1)               # (B, 4, h*2) — 4 latent tokens
+        # Cross-attention to voltage: mesh nodes attend to learnable latent tokens
+        v_base = self.v_latent_proj(v_emb).unsqueeze(1)          # (B, 1, h*2)
+        v_latent = v_base + self.v_latent_tokens.unsqueeze(0)    # (B, 4, h*2) — 4 distinct tokens
         x_cross, _ = self.bn_cross_attn(x, v_latent, v_latent)
         x = x + x_cross  # Cross-attn residual
 
