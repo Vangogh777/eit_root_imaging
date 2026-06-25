@@ -141,7 +141,11 @@ Measurement consistency uses either **Jacobian linear approximation** (fast) or 
 
 - All paths in configs are relative to `eit_root_imaging/` directory
 - The `train.py` entry point auto-generates data only on first run (checks `data/generated/eit_dataset.h5`)
-- Checkpoints saved to `checkpoints/` with naming like `conv_spatial_best.pt`, `two_stage_model.pt`
+- Checkpoints saved to `checkpoints/<run_id>/` with per-run isolation:
+  - `checkpoints/<run_id>/best.pt` — best model (by RE)
+  - `checkpoints/<run_id>/final.pt` — final model
+  - `checkpoints/<run_id>/unsup_epoch*.pt` — unsupervised phase checkpoints
+  - Previous shared paths (`conv_spatial_best.pt` etc.) are deprecated.
 - Training records stored in `training_records/` with `index.json` as catalog
 - Wandb logging available via `--wandb` flag; TensorBoard by default
 - `serve_results.py` is the live results dashboard — deploy with `eit-server.service`

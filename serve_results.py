@@ -73,11 +73,22 @@ def load_metrics(dir_path):
     return summary, summary_line
 
 
-def scan_results():
-    """扫描 results/ 目录，返回所有结果组"""
-    groups = []  # 每个元素: {name, path, images: [{name, path, size}], metrics, is_dir}
 
-    # 1. 子目录（validation_xxx/ 等）
+
+def fmt_mtime(path):
+    """返回文件/目录的最后修改时间字符串"""
+    try:
+        ts = os.path.getmtime(path)
+        return dt.datetime.fromtimestamp(ts).strftime('%m-%d %H:%M')
+    except:
+        return ""
+
+
+def scan_results():
+    """扫描 results/ 目录，返回所有结果组（含修改时间）"""
+    groups = []
+
+    # 1. 子目录
     for d in sorted(os.listdir(RESULTS_DIR)):
         dpath = os.path.join(RESULTS_DIR, d)
         if not os.path.isdir(dpath) or d.startswith('.'):
@@ -89,8 +100,10 @@ def scan_results():
                 size = os.path.getsize(fpath)
                 label = fname.rsplit('.', 1)[0].replace('_', ' ').title()
                 images.append({'name': fname, 'path': f'results/{d}/{fname}',
-                               'label': label, 'size': size})
+                               'label': label, 'size': size,
+                               'mtime': fmt_mtime(fpath)})
         metrics, summary_line = load_metrics(dpath)
+        dir_mtime = fmt_mtime(dpath)
         groups.append({
             'name': d,
             'path': f'results/{d}/',
@@ -98,9 +111,10 @@ def scan_results():
             'metrics': metrics,
             'summary_line': summary_line,
             'is_dir': True,
+            'mtime': dir_mtime,
         })
 
-    # 2. 根目录的 .png 文件
+    # 2. 根目录图片
     root_images = []
     for fname in sorted(os.listdir(RESULTS_DIR)):
         if fname.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg')):
@@ -108,19 +122,18 @@ def scan_results():
             size = os.path.getsize(fpath)
             label = fname.rsplit('.', 1)[0].replace('_', ' ').replace('-', ' ').title()
             root_images.append({'name': fname, 'path': f'results/{fname}',
-                                'label': label, 'size': size})
+                                'label': label, 'size': size,
+                                'mtime': fmt_mtime(fpath)})
 
     if root_images:
-        metrics = {}
-        summary_line = ""
-        # 尝试从同名的 validation 目录找指标
         groups.insert(0, {
             'name': '根目录图像',
             'path': 'results/',
             'images': root_images,
-            'metrics': metrics,
-            'summary_line': summary_line,
+            'metrics': {},
+            'summary_line': "",
             'is_dir': False,
+            'mtime': "",
         })
 
     return groups
@@ -153,26 +166,19 @@ def format_metrics_html(metrics, summary_line):
 
 
 def generate_results_html():
-    """生成完整 HTML 页面"""
+    """生成完整 HTML 页面，支持前端排序 + 灯箱画廊"""
     groups = scan_results()
 
-    # 统计
     total_png = sum(len(g['images']) for g in groups)
     total_dirs = sum(1 for g in groups if g['is_dir'])
 
-    # 构建每个组的卡片
+    # 构建每个组的卡片（嵌入 data- 属性用于前端排序 + 画廊）
     cards_html = ""
     for g in groups:
         metrics_html = format_metrics_html(g['metrics'], g['summary_line'])
 
-        # 取第一张图为封面
-        cover_path = ""
-        if g['images']:
-            cover_path = g['images'][0]['path']
-        else:
-            cover_path = ""
+        cover_path = g['images'][0]['path'] if g['images'] else ""
 
-        # 文字描述
         n_img = len(g['images'])
         desc = f"{n_img} 张图像"
         if g['is_dir']:
@@ -180,47 +186,49 @@ def generate_results_html():
         else:
             desc += " · results/ 根目录"
 
-        # 取指标显示在 badge
-        re_val = ""
-        if 'RE' in g['metrics']:
-            m = g['metrics']['RE']
-            re_val = f"RE = {m.get('mean', 0):.3f}"
-
-        # 是否为新的 v2 结果
+        mtime_display = ""
+        if g.get('mtime'):
+            mtime_display = f'<div class="mtime">🕐 {g["mtime"]}</div>'
         is_v2 = 'v2' in g['name'].lower() or 'best' in g['name'].lower()
+        card_cls = 'card' + (' v2' if is_v2 else '')
+        sort_time = g.get('mtime', '')
+        sort_name = g['name'].lower()
+
+        # 所有图片路径作为 JSON 嵌入 data-images
+        img_list = [img['path'] for img in g['images']]
+        import json
+        images_json = json.dumps(img_list, ensure_ascii=False)
+
+        card_attrs = f'data-sort-time="{sort_time}" data-sort-name="{sort_name}" data-images=\'{images_json}\''
+        card_title = g['name']
 
         if cover_path:
             card = f'''
-        <div class="card {'v2' if is_v2 else ''}">
-            <a href="/{cover_path}" target="_blank">
-            <div class="img-wrap"><img src="/{cover_path}" alt="{g['name']}" loading="lazy"></div>
-            <div class="info">
+        <div class="{card_cls}" {card_attrs}>
+            <div class="img-wrap" onclick="openGallery(this.parentElement)"><img src="/{cover_path}" alt="{g['name']}" loading="lazy"></div>
+            <div class="info" onclick="openGallery(this.parentElement)">
                 <h3>{'🚀 ' if is_v2 else ''}{g['name']}</h3>
                 <p>{desc}</p>
                 <div class="metrics-row">{metrics_html}</div>
+                {mtime_display}
             </div>
-            </a>
         </div>'''
         else:
             card = f'''
-        <div class="card {'v2' if is_v2 else ''}">
-            <a href="/{g['path']}" target="_blank">
-            <div class="img-wrap" style="display:flex;align-items:center;justify-content:center;background:#0a0e17;">
+        <div class="{card_cls}" {card_attrs}>
+            <div class="img-wrap" style="display:flex;align-items:center;justify-content:center;background:#0a0e17;" onclick="openGallery(this.parentElement)">
                 <span style="font-size:48px;opacity:0.5;">📁</span>
             </div>
-            <div class="info">
+            <div class="info" onclick="openGallery(this.parentElement)">
                 <h3>{g['name']}</h3>
                 <p>{desc}</p>
                 <div class="metrics-row">{metrics_html}</div>
+                {mtime_display}
             </div>
-            </a>
         </div>'''
         cards_html += card
 
-    # 如果该目录太多图，加一个"查看全部"链接
-    for g in groups:
-        if len(g['images']) > 4 and g['is_dir']:
-            pass  # 已经有了链接
+    now_str = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')
 
     html = f'''<!DOCTYPE html>
 <html lang="zh-CN">
@@ -256,6 +264,16 @@ body::before {{
 .home-btn:hover {{ background:rgba(59,130,246,0.2); }}
 .header .count {{ font-size: 13px; color: #667788; }}
 .refresh-info {{ font-size: 12px; color: #556677; margin-top: 4px; }}
+.sort-bar {{ display: flex; align-items: center; gap: 8px; }}
+.sort-btn {{
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 12px; color: #667788; background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06); transition: all 0.2s;
+    user-select: none;
+}}
+.sort-btn:hover {{ background: rgba(59,130,246,0.12); color: #94a3b8; }}
+.sort-btn.active {{ background: rgba(59,130,246,0.15); color: #60a5fa; border-color: rgba(59,130,246,0.3); }}
 
 .gallery {{
     display: grid;
@@ -301,8 +319,7 @@ body::before {{
 .metrics-row {{ display: flex; flex-wrap: wrap; gap: 4px 10px; }}
 .metric {{ font-size: 11px; padding: 2px 8px; border-radius: 6px;
            background: rgba(255,255,255,0.04); }}
-
-.header .header-top {{ display:flex;align-items:center;gap:12px;flex-wrap:wrap; }}
+.mtime {{ font-size: 11px; color: #556677; margin-top: 6px; }}
 @media (max-width: 768px) {{
     .gallery {{ grid-template-columns: 1fr; }}
     .card .img-wrap {{ height: 200px; }}
@@ -317,12 +334,17 @@ body::before {{
                 <a href="/" class="home-btn">← 返回论文首页</a>
                 <h1>🔬 EIT 实验结果总览</h1>
             </div>
-            <div class="refresh-info">自动扫描 results/ 目录 · 共 {total_png} 张图片 / {total_dirs} 个子目录 · 刷新页面即更新</div>
+            <div class="refresh-info">自动扫描 results/ 目录 · 共 {total_png} 张图片 / {total_dirs} 个子目录</div>
         </div>
-        <span class="count">🕐 {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
+        <div class="sort-bar">
+            <span class="sort-btn active" data-sort="time-desc" onclick="sortGallery('time-desc')">🕐 时间 ↓</span>
+            <span class="sort-btn" data-sort="time-asc" onclick="sortGallery('time-asc')">🕐 时间 ↑</span>
+            <span class="sort-btn" data-sort="name" onclick="sortGallery('name')">📋 名称</span>
+            <span class="count" style="margin-left:4px;">{now_str}</span>
+        </div>
     </div>
 
-    <div class="gallery">
+    <div class="gallery" id="gallery">
         {cards_html}
     </div>
 
@@ -331,12 +353,109 @@ body::before {{
         子目录会自动识别为独立的结果组 · 含 <code>metrics.json</code> 的子目录会显示指标
     </div>
 </div>
-</body>
-</html>'''
+<script>
+function sortGallery(mode) {{
+    var gallery = document.getElementById('gallery');
+    var cards = Array.from(gallery.children);
+    var btn = document.querySelector('.sort-btn[data-sort="'+mode+'"]');
+    if (!btn) return;
+    document.querySelectorAll('.sort-btn').forEach(function(b) {{ b.classList.remove('active'); }});
+    btn.classList.add('active');
+
+    cards.sort(function(a, b) {{
+        if (mode === 'name') {{
+            return a.getAttribute('data-sort-name').localeCompare(b.getAttribute('data-sort-name'));
+        }} else {{
+            var ta = a.getAttribute('data-sort-time') || '';
+            var tb = b.getAttribute('data-sort-time') || '';
+            if (ta === tb) return 0;
+            if (ta === '') return 1;
+            if (tb === '') return -1;
+            var cmp = ta.localeCompare(tb);
+            return mode === 'time-desc' ? -cmp : cmp;
+        }}
+    }});
+
+    cards.forEach(function(card) {{ gallery.appendChild(card); }});
+}}
+</script>
+<!-- 灯箱 -->
+<style>
+.gal-overlay {{ display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:9999;cursor:default; }}
+.gal-overlay.active {{ display:block; }}
+.gal-img-wrap {{ position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center; }}
+.gal-img {{ max-width:90vw;max-height:80vh;object-fit:contain;transition:transform 0.2s;user-select:none;border-radius:4px; }}
+.gal-toolbar {{ display:flex;gap:6px;margin-top:12px;background:rgba(15,23,42,0.9);padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.1); }}
+.gal-toolbar button {{ background:none;border:1px solid rgba(255,255,255,0.15);color:#94a3b8;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:14px; }}
+.gal-toolbar button:hover {{ background:rgba(255,255,255,0.05); }}
+.gal-counter {{ color:#94a3b8;font-size:13px;padding:4px 10px; }}
+.gal-nav {{ position:fixed;top:50%;transform:translateY(-50%);font-size:40px;color:rgba(255,255,255,0.3);cursor:pointer;padding:20px 16px;user-select:none;transition:all 0.2s;z-index:10000; }}
+.gal-nav:hover {{ color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.05); }}
+.gal-prev {{ left:10px; }}
+.gal-next {{ right:10px; }}
+.gal-close {{ position:fixed;top:12px;right:20px;font-size:32px;color:rgba(255,255,255,0.4);cursor:pointer;z-index:10000;transition:all 0.2s; }}
+.gal-close:hover {{ color:#ef4444;transform:scale(1.15); }}
+</style>
+<div id="gallery-overlay" class="gal-overlay" onclick="closeGallery(event)">
+    <span class="gal-nav gal-prev" onclick="navGallery(-1)">&#10094;</span>
+    <span class="gal-nav gal-next" onclick="navGallery(1)">&#10095;</span>
+    <span class="gal-close" onclick="closeGallery(event)">&times;</span>
+    <div class="gal-img-wrap">
+        <img id="gal-img" class="gal-img" src="" alt="">
+        <div class="gal-toolbar">
+            <span id="gal-counter" class="gal-counter"></span>
+            <button onclick="galZoom(-0.2)">−</button>
+            <button onclick="galZoom(0.2)">+</button>
+            <button onclick="galRotate(-90)">&#8634;</button>
+            <button onclick="galRotate(90)">&#8635;</button>
+            <button onclick="galReset()" style="color:#f59e0b">R</button>
+        </div>
+    </div>
+</div>
+<script>
+var _gal = {{ idx: 0, images: [], scale: 1, rot: 0 }};
+function openGallery(card) {{
+    try {{ _gal.images = JSON.parse(card.getAttribute('data-images') || '[]'); }} catch(e) {{ _gal.images = []; }}
+    if (_gal.images.length === 0) return;
+    _gal.idx = 0; _gal.scale = 1; _gal.rot = 0;
+    showGalImage();
+    document.getElementById('gallery-overlay').classList.add('active');
+    document.body.style.overflow = 'hidden';
+}}
+function closeGallery(ev) {{
+    if (ev && ev.target && ev.target.id !== 'gallery-overlay' && !ev.target.classList.contains('gal-close')) return;
+    document.getElementById('gallery-overlay').classList.remove('active');
+    document.body.style.overflow = '';
+}}
+function showGalImage() {{
+    var img = document.getElementById('gal-img');
+    if (_gal.images.length === 0) return;
+    img.src = '/' + _gal.images[_gal.idx];
+    document.getElementById('gal-counter').textContent = (_gal.idx + 1) + ' / ' + _gal.images.length;
+    galReset();
+}}
+function navGallery(d) {{
+    if (_gal.images.length === 0) return;
+    _gal.idx = (_gal.idx + d + _gal.images.length) % _gal.images.length;
+    showGalImage();
+}}
+function galZoom(d) {{ _gal.scale = Math.max(0.2, Math.min(5, _gal.scale + d)); applyGalTransform(); }}
+function galRotate(d) {{ _gal.rot = (_gal.rot + d) % 360; applyGalTransform(); }}
+function galReset() {{ _gal.scale = 1; _gal.rot = 0; applyGalTransform(); }}
+function applyGalTransform() {{ document.getElementById('gal-img').style.transform = 'scale(' + _gal.scale + ') rotate(' + _gal.rot + 'deg)'; }}
+document.addEventListener('keydown', function(ev) {{
+    if (!document.getElementById('gallery-overlay').classList.contains('active')) return;
+    if (ev.key === 'Escape') closeGallery(ev);
+    if (ev.key === 'ArrowLeft') navGallery(-1);
+    if (ev.key === 'ArrowRight') navGallery(1);
+    if (ev.key === '+' || ev.key === '=') galZoom(0.2);
+    if (ev.key === '-') galZoom(-0.2);
+    if (ev.key === 'r') galReset();
+}});
+</script>
+</body></html>'''
     return html
 
-
-# ============ 训练记录 HTML 生成 ============
 
 def generate_training_card():
     """生成首页训练摘要卡片 HTML"""
@@ -351,8 +470,18 @@ def generate_training_card():
 
     sup_epochs = [e for e in (data.get("epochs") or []) if e["phase"] == "supervised"]
     unsup_epochs = [e for e in (data.get("epochs") or []) if e["phase"] == "unsupervised"]
+    diff_epochs = [e for e in (data.get("epochs") or []) if e["phase"] == "diffusion"]
 
-    best_re = meta.get("best_re", "—")
+    # 从 meta 或 epochs 中获取最佳 RE
+    all_epochs = sup_epochs + unsup_epochs + diff_epochs
+    best_re = meta.get("best_re")
+    if best_re is None and all_epochs:
+        re_vals = [e.get("re") for e in all_epochs if e.get("re") is not None]
+        best_re = f"{min(re_vals):.4f}" if re_vals else "—"
+    elif best_re is not None:
+        best_re = f"{best_re:.4f}" if isinstance(best_re, float) else str(best_re)
+    else:
+        best_re = "—"
     total_params = meta.get("model_params", 0)
     hidden = meta.get("hidden_dim", "—")
     status = latest["status"]
@@ -510,8 +639,20 @@ document.head.appendChild(s);
 
 
 
+def _compute_best_re(meta: dict, epochs: list) -> str:
+    """从 meta 或 epochs 数据中计算最佳 RE，返回格式化字符串"""
+    best = meta.get("best_re")
+    if best is not None:
+        return f"{best:.4f}" if isinstance(best, float) else str(best)
+    if epochs:
+        re_vals = [e.get("re") for e in epochs if e.get("re") is not None]
+        if re_vals:
+            return f"{min(re_vals):.4f}"
+    return "—"
+
+
 def generate_training_overview() -> str:
-    """生成训练总览页 /training/"""
+    """生成训练总览页 /training/，支持多选删除"""
     runs = list_runs()
     now_str = dt.datetime.now().strftime('%Y-%m-%d %H:%M')
 
@@ -523,20 +664,24 @@ def generate_training_overview() -> str:
         meta = data.get("meta", {}) if data else {}
         sup_epochs = [e for e in (data.get("epochs") or []) if e["phase"] == "supervised"]
         unsup_epochs = [e for e in (data.get("epochs") or []) if e["phase"] == "unsupervised"]
+        diff_epochs = [e for e in (data.get("epochs") or []) if e["phase"] == "diffusion"]
 
         status = r.get("status", "completed")
         status_cls = status
         status_icon = {"completed": "✅", "running": "🔴", "failed": "❌"}.get(status, "⚪")
 
-        best_re = meta.get("best_re", "—")
+        best_re = _compute_best_re(meta, data.get("epochs") or [])
         params = meta.get("model_params", 0)
         hidden = meta.get("hidden_dim", "—")
         n_sup = len(sup_epochs)
         n_unsup = len(unsup_epochs)
+        n_diff = len(diff_epochs)
         start = r.get("start_time", "")[:16].replace("T", " ")
 
-        # RE 微型曲线
+        # RE/Loss 微型曲线 — 优先用 diff 的 loss
         re_values = [e.get("re") for e in sup_epochs if e.get("re") is not None]
+        if not re_values:
+            re_values = [e.get("val_loss") for e in diff_epochs if e.get("val_loss") is not None]
         chart_svg = ""
         if re_values:
             n = len(re_values)
@@ -551,29 +696,87 @@ def generate_training_overview() -> str:
             chart_svg = f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}"><polyline points="{" ".join(pts)}" fill="none" stroke="#22c55e" stroke-width="1"/></svg>'
 
         cards += f'''
-    <div class="run-card {status_cls}" onclick="location.href='/training/{run_id}/'">
-        <div class="run-card-header">
-            <div><span class="run-name">{status_icon} {r["name"]}</span></div>
-            <span class="run-status {status_cls}">{status}</span>
+    <div class="run-card {status_cls}" data-run-id="{run_id}">
+        <div class="run-card-checkbox" onclick="event.stopPropagation()">
+            <input type="checkbox" class="run-select" value="{run_id}" id="sel_{run_id}">
         </div>
-        <div class="run-meta">
-            <span class="run-meta-item"><span class="run-meta-label">🕐</span> {start}</span>
-            <span class="run-meta-item"><span class="run-meta-label">最佳 RE</span> {best_re}</span>
-            <span class="run-meta-item"><span class="run-meta-label">参数</span> {params:,}</span>
-            <span class="run-meta-item"><span class="run-meta-label">hidden_dim</span> {hidden}</span>
-            <span class="run-meta-item"><span class="run-meta-label">有监督</span> {n_sup} ep</span>
-            <span class="run-meta-item"><span class="run-meta-label">无监督</span> {n_unsup} ep</span>
+        <div class="run-card-body" onclick="location.href='/training/{run_id}/'">
+            <div class="run-card-header">
+                <div><span class="run-name">{status_icon} {r["name"]}</span></div>
+                <span class="run-status {status_cls}">{status}</span>
+            </div>
+            <div class="run-meta">
+                <span class="run-meta-item"><span class="run-meta-label">🕐</span> {start}</span>
+                <span class="run-meta-item"><span class="run-meta-label">最佳 RE</span> {best_re}</span>
+                <span class="run-meta-item"><span class="run-meta-label">参数</span> {params:,}</span>
+                <span class="run-meta-item"><span class="run-meta-label">hidden_dim</span> {hidden}</span>
+                <span class="run-meta-item"><span class="run-meta-label">有监督</span> {n_sup} ep</span>
+                <span class="run-meta-item"><span class="run-meta-label">无监督</span> {n_unsup} ep</span>
+                <span class="run-meta-item"><span class="run-meta-label">扩散</span> {n_diff} ep</span>
+            </div>
+            {f'<div class="run-chart">{chart_svg}</div>' if chart_svg else ''}
         </div>
-        {f'<div class="run-chart">{chart_svg}</div>' if chart_svg else ''}
     </div>'''
 
     if not cards:
         cards = '<div style="text-align:center;padding:60px;color:#667788;">暂无训练记录</div>'
+
+    toolbar_style = '''
+.tr-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 10px 16px; background: rgba(15,23,42,0.8); border: 1px solid rgba(59,130,246,0.12); border-radius: 10px; backdrop-filter: blur(10px); flex-wrap: wrap; }
+.tr-toolbar label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #94a3b8; cursor: pointer; }
+.tr-toolbar .tr-count { font-size: 12px; color: #556677; margin-left: auto; }
+.tr-del-btn { padding: 6px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 4px; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; }
+.tr-del-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.tr-del-btn:hover:not(:disabled) { background: rgba(239,68,68,0.25); }
+.run-card { display: flex; align-items: flex-start; gap: 0; padding: 0; overflow: hidden; }
+.run-card-checkbox { display: flex; align-items: center; justify-content: center; min-width: 40px; height: 100%; padding: 16px 0 16px 12px; cursor: pointer; }
+.run-card-checkbox input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; }
+.run-card-body { flex: 1; padding: 16px 20px; cursor: pointer; }
+/* 选中高亮 */
+.run-card.selected { border-color: rgba(59,130,246,0.5); background: rgba(59,130,246,0.08); }
+.confirm-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; }
+.confirm-overlay.active { display: flex; }
+.confirm-dialog { background: rgba(15,23,42,0.95); border: 1px solid rgba(239,68,68,0.3); border-radius: 14px; padding: 24px 32px; max-width: 420px; width: 90%; backdrop-filter: blur(10px); }
+.confirm-dialog h3 { font-size: 16px; color: #ef4444; margin-bottom: 8px; }
+.confirm-dialog p { font-size: 13px; color: #94a3b8; margin-bottom: 6px; line-height: 1.5; }
+.confirm-dialog .confirm-ids { font-size: 11px; color: #667788; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 8px; margin-bottom: 16px; max-height: 120px; overflow-y: auto; word-break: break-all; }
+.confirm-dialog .confirm-btns { display: flex; gap: 10px; justify-content: flex-end; }
+.confirm-dialog .btn-cancel { padding: 8px 20px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: #94a3b8; cursor: pointer; font-size: 13px; }
+.confirm-dialog .btn-confirm { padding: 8px 20px; border-radius: 8px; border: none; background: rgba(239,68,68,0.8); color: #fff; cursor: pointer; font-size: 13px; font-weight: 600; }
+.confirm-dialog .btn-confirm:hover { background: #ef4444; }
+'''
+
     html = f'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>训练记录 - EIT</title>
 {BASE_STYLE}
+<style>
+/* 多选删除样式 */
+.tr-toolbar {{ display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 10px 16px; background: rgba(15,23,42,0.8); border: 1px solid rgba(59,130,246,0.12); border-radius: 10px; backdrop-filter: blur(10px); flex-wrap: wrap; }}
+.tr-toolbar label {{ display: flex; align-items: center; gap: 6px; font-size: 13px; color: #94a3b8; cursor: pointer; }}
+.tr-toolbar .tr-count {{ font-size: 12px; color: #556677; margin-left: auto; }}
+.tr-del-btn {{ padding: 6px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 4px; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; }}
+.tr-del-btn:disabled {{ opacity: 0.3; cursor: not-allowed; background: rgba(100,100,100,0.08); border-color: rgba(100,100,100,0.15); color: #666; }}
+.tr-del-btn:not(:disabled) {{ box-shadow: 0 0 8px rgba(239,68,68,0.15); }}
+.tr-del-btn:hover:not(:disabled) {{ background: rgba(239,68,68,0.25); }}
+.run-card {{ display: flex; align-items: flex-start; gap: 0; padding: 0; overflow: hidden; }}
+.run-card-checkbox {{ display: flex; align-items: center; justify-content: center; min-width: 40px; height: 100%; padding: 16px 0 16px 12px; cursor: pointer; flex-shrink: 0; }}
+.run-card-checkbox input[type="checkbox"] {{ width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; }}
+.run-card-body {{ flex: 1; min-width: 0; padding: 16px 20px; cursor: pointer; }}
+.run-card.selected {{ border-color: rgba(59,130,246,0.5) !important; background: rgba(59,130,246,0.08) !important; }}
+.confirm-overlay {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; }}
+.confirm-overlay.active {{ display: flex; }}
+.confirm-dialog {{ background: rgba(15,23,42,0.95); border: 1px solid rgba(239,68,68,0.3); border-radius: 14px; padding: 24px 32px; max-width: 420px; width: 90%; backdrop-filter: blur(10px); }}
+.confirm-dialog h3 {{ font-size: 16px; color: #ef4444; margin-bottom: 8px; }}
+.confirm-dialog p {{ font-size: 13px; color: #94a3b8; margin-bottom: 6px; line-height: 1.5; }}
+.confirm-dialog .confirm-ids {{ font-size: 11px; color: #667788; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 8px; margin-bottom: 16px; max-height: 120px; overflow-y: auto; word-break: break-all; }}
+.confirm-dialog .confirm-btns {{ display: flex; gap: 10px; justify-content: flex-end; }}
+.confirm-dialog .btn-cancel {{ padding: 8px 20px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: #94a3b8; cursor: pointer; font-size: 13px; }}
+.confirm-dialog .btn-cancel:hover {{ background: rgba(255,255,255,0.05); }}
+.confirm-dialog .btn-confirm {{ padding: 8px 20px; border-radius: 8px; border: none; background: rgba(239,68,68,0.8); color: #fff; cursor: pointer; font-size: 13px; font-weight: 600; }}
+.confirm-dialog .btn-confirm:hover {{ background: #ef4444; }}
+</style>
 </head>
 <body><div class="container">
     <div class="navbar">
@@ -592,12 +795,120 @@ def generate_training_overview() -> str:
         <div class="line"></div>
     </div>
 
-    {cards}
+    <div class="tr-toolbar">
+        <label><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"> 全选</label>
+        <button class="tr-del-btn" id="delBtn" onclick="confirmDelete()" disabled>&#128465; 删除所选</button>
+        <span class="tr-count" id="countInfo">共 {len(runs)} 条记录</span>
+    </div>
+
+    <div id="cardList">
+        {cards}
+    </div>
 
     <div style="text-align:center;padding:30px;color:#556677;font-size:12px;">
-        &#128161; 以后运行训练脚本会自动记录到此页面
+        &#128161; 勾选记录后点击"删除所选"批量清理 · 点击卡片查看详情
     </div>
-</div></body></html>'''
+</div>
+
+<!-- 确认对话框 -->
+<div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-dialog">
+        <h3>&#9888;&#65039; 确认删除</h3>
+        <p>以下训练记录将被永久删除，此操作不可撤销：</p>
+        <div class="confirm-ids" id="confirmIds"></div>
+        <div class="confirm-btns">
+            <button class="btn-cancel" onclick="closeConfirm()">取消</button>
+            <button class="btn-confirm" onclick="doDelete()">确认删除</button>
+        </div>
+    </div>
+</div>
+
+<script>
+var _pendingDelete = [];
+
+document.querySelectorAll('.run-select').forEach(function(cb) {{
+    cb.addEventListener('change', function() {{
+        var card = this.closest('.run-card');
+        if (this.checked) {{
+            card.classList.add('selected');
+        }} else {{
+            card.classList.remove('selected');
+        }}
+        updateUI();
+    }});
+}});
+
+function toggleSelectAll(sel) {{
+    document.querySelectorAll('.run-select').forEach(function(cb) {{
+        cb.checked = sel.checked;
+        var card = cb.closest('.run-card');
+        if (sel.checked) {{
+            card.classList.add('selected');
+        }} else {{
+            card.classList.remove('selected');
+        }}
+    }});
+    updateUI();
+}}
+
+function updateUI() {{
+    var checked = document.querySelectorAll('.run-select:checked');
+    var btn = document.getElementById('delBtn');
+    var info = document.getElementById('countInfo');
+    if (checked.length > 0) {{
+        btn.textContent = '[\u2716] 删除所选 (' + checked.length + ')';
+        btn.disabled = false;
+        info.textContent = '已选 ' + checked.length + ' / 共 ' + document.querySelectorAll('.run-select').length + ' 条';
+    }} else {{
+        btn.disabled = true;
+        info.textContent = '共 ' + document.querySelectorAll('.run-select').length + ' 条记录';
+    }}
+}}
+
+function confirmDelete() {{
+    var checked = document.querySelectorAll('.run-select:checked');
+    if (checked.length === 0) return;
+    _pendingDelete = Array.from(checked).map(function(cb) {{ return cb.value; }});
+    var names = _pendingDelete.join('\n');
+    document.getElementById('confirmIds').textContent = names;
+    document.getElementById('confirmOverlay').classList.add('active');
+}}
+
+function closeConfirm() {{
+    document.getElementById('confirmOverlay').classList.remove('active');
+    _pendingDelete = [];
+}}
+
+function doDelete() {{
+    if (_pendingDelete.length === 0) return;
+    fetch('/api/training/delete', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ run_ids: _pendingDelete }})
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(data) {{
+        if (data.success) {{
+            location.reload();
+        }} else {{
+            alert('\u5220\u9664\u5931\u8D25: ' + (data.error || '\u672A\u77E5\u9519\u8BEF'));
+            closeConfirm();
+        }}
+    }})
+    .catch(function(err) {{
+        alert('\u7F51\u7EDC\u9519\u8BEF: ' + err);
+        closeConfirm();
+    }});
+}}
+
+// ESC 关闭确认框
+document.addEventListener('keydown', function(ev) {{
+    if (ev.key === 'Escape' && document.getElementById('confirmOverlay').classList.contains('active')) {{
+        closeConfirm();
+    }}
+}});
+</script>
+</body></html>'''
     return html
 
 
@@ -613,6 +924,7 @@ def generate_training_detail(run_id: str) -> str:
 
     sup_epochs = [e for e in epochs if e["phase"] == "supervised"]
     unsup_epochs = [e for e in epochs if e["phase"] == "unsupervised"]
+    diff_epochs = [e for e in epochs if e["phase"] == "diffusion"]
 
     status = meta.get("status", "completed")
     status_icon = {"completed": "\u2705", "running": "\U0001F534", "failed": "\u274C"}.get(status, "\u26AA")
@@ -694,6 +1006,8 @@ def generate_training_detail(run_id: str) -> str:
     chart_sup = make_chart(sup_epochs, "re", "#22c55e", "RE (\u6709\u76D1\u7763)")
     loss_sup = make_chart(sup_epochs, "loss", "#3b82f6", "Loss (\u6709\u76D1\u7763)")
     chart_unsup = make_chart(unsup_epochs, "loss", "#f59e0b", "Loss (\u65E0\u76D1\u7763)")
+    loss_diff = make_chart(diff_epochs, "val_loss", "#a855f7", "Val Loss (\u6269\u6563)")
+    train_diff = make_chart(diff_epochs, "loss", "#8b5cf6", "Train Loss (\u6269\u6563)")
 
     # 事件列表
     events_html = ""
@@ -754,6 +1068,8 @@ def generate_training_detail(run_id: str) -> str:
             <div><div style="font-size:12px;color:#94a3b8;margin-bottom:4px;">\u6709\u76D1\u7763 RE</div>{chart_sup}</div>
             <div><div style="font-size:12px;color:#94a3b8;margin-bottom:4px;">\u6709\u76D1\u7763 Loss</div>{loss_sup}</div>
             <div><div style="font-size:12px;color:#94a3b8;margin-bottom:4px;">\u65E0\u76D1\u7763 Loss</div>{chart_unsup}</div>
+            <div><div style="font-size:12px;color:#a78bfa;margin-bottom:4px;">\u6269\u6563 Val Loss</div>{loss_diff}</div>
+            <div><div style="font-size:12px;color:#8b5cf6;margin-bottom:4px;">\u6269\u6563 Train Loss</div>{train_diff}</div>
         </div>
     </div>
 
@@ -979,8 +1295,8 @@ def generate_docs_list(query: str = "", sort_by: str = "time") -> str:
         href = f['url'] if is_md else f['raw_url']
         target = '' if is_md else ' target="_blank"'
         cards += f'''
-        <a href="{href}"{target} style="text-decoration:none;display:block;">
-        <div class="doc-card">
+        <div class="doc-card-row">
+        <a href="{href}"{target} class="doc-card-link">
             <div class="doc-card-icon">{f['icon']}</div>
             <div class="doc-card-info">
                 <div class="doc-card-name">{f['name']}</div>
@@ -991,8 +1307,9 @@ def generate_docs_list(query: str = "", sort_by: str = "time") -> str:
                 <span class="doc-size">{size_str}</span>
                 <span class="doc-time">{mtime_str}</span>
             </div>
-        </div>
-        </a>'''
+        </a>
+        <a href="{f['raw_url']}?dl=1" class="doc-dl-btn" title="下载">⬇</a>
+        </div>'''
 
     if not cards:
         cards = '<div style="text-align:center;padding:60px;color:#667788;">未找到匹配文件</div>'
@@ -1006,8 +1323,9 @@ def generate_docs_list(query: str = "", sort_by: str = "time") -> str:
 .doc-sort { padding:10px 16px;background:rgba(15,23,42,0.9);border:1px solid rgba(59,130,246,0.15);border-radius:10px;color:#94a3b8;font-size:13px;cursor:pointer;outline:none;white-space:nowrap; }
 .doc-sort:hover { border-color:rgba(59,130,246,0.3); }
 .doc-sort option { background:#0f172a;color:#e0e8f0; }
-.doc-card { display:flex;align-items:center;gap:14px;padding:14px 18px;margin-bottom:6px;background:rgba(15,23,42,0.6);border:1px solid rgba(59,130,246,0.06);border-radius:12px;transition:all 0.2s; }
-.doc-card:hover { background:rgba(15,23,42,0.9);border-color:rgba(59,130,246,0.25);transform:translateX(2px); }
+.doc-card-row { display:flex;align-items:center;gap:0;margin-bottom:6px; }
+.doc-card-link { flex:1;min-width:0;display:flex;align-items:center;gap:14px;padding:14px 18px;text-decoration:none;background:rgba(15,23,42,0.6);border:1px solid rgba(59,130,246,0.06);border-radius:12px 0 0 12px;transition:all 0.2s; }
+.doc-card-link:hover { background:rgba(15,23,42,0.9);border-color:rgba(59,130,246,0.25); }
 .doc-card-icon { font-size:24px;flex-shrink:0;width:36px;text-align:center; }
 .doc-card-info { flex:1;min-width:0; }
 .doc-card-name { font-size:14px;font-weight:600;color:#d0d8e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
@@ -1016,6 +1334,10 @@ def generate_docs_list(query: str = "", sort_by: str = "time") -> str:
 .doc-type { padding:2px 8px;border-radius:6px;background:rgba(59,130,246,0.08);color:#60a5fa; }
 .doc-size { color:#556677; }
 .doc-time { color:#445566;min-width:80px;text-align:right; }
+.doc-dl-btn { flex-shrink:0;display:flex;align-items:center;justify-content:center;width:44px;align-self:stretch;border-radius:0 12px 12px 0;background:rgba(59,130,246,0.06);color:#60a5fa;text-decoration:none;font-size:16px;transition:all 0.2s;border:1px solid rgba(59,130,246,0.06);border-left:none; }
+.doc-dl-btn:hover { background:rgba(59,130,246,0.15);color:#93c5fd;border-color:rgba(59,130,246,0.25); }
+.doc-card-row:hover .doc-card-link { background:rgba(15,23,42,0.9);border-color:rgba(59,130,246,0.25); }
+.doc-card-row:hover .doc-dl-btn { border-color:rgba(59,130,246,0.25);background:rgba(59,130,246,0.1); }
 @media (max-width:600px) {
     .doc-card-meta { display:none; }
     .doc-toolbar { flex-direction:column; }
@@ -1129,6 +1451,7 @@ def generate_docs_view(file_path: str) -> str:
         <div>
             <a href="/docs-list/" class="nav-back">&larr; 文档列表</a>
             <a href="/" class="nav-back" style="margin-left:6px;">&larr; 首页</a>
+            <a href="/docs/{file_path}?dl=1" class="nav-back" style="margin-left:6px;background:rgba(59,130,246,0.1);">⬇ 下载</a>
             <span class="navbar-badge" style="margin-left:8px;">{mtime}</span>
         </div>
     </div>
@@ -1148,25 +1471,35 @@ def generate_docs_view(file_path: str) -> str:
 def generate_datasets_page() -> str:
     """生成训练数据集预览页"""
     shapes_info = [
-        {'name': '单圆 (circle)', 'key': 'circle', 'desc': '随机位置 + 随机半径 0.8~3cm，25%占比'},
+        {'name': '根系 (root)', 'key': 'root', 'desc': '植物根系结构：直根型/须根型/鱼骨型，平均5.3%覆盖率'},
+        {'name': '单圆 (circle)', 'key': 'circle', 'desc': '随机位置 + 随机半径 1.2~3.2cm，25%占比'},
         {'name': '椭圆 (ellipse)', 'key': 'ellipse', 'desc': '随机长/短轴 + 随机旋转角度，25%占比'},
         {'name': '双圆 (double_circle)', 'key': 'double_circle', 'desc': '两个不重叠的圆，25%占比'},
-        {'name': '正方形 (square)', 'key': 'square', 'desc': '随机边长 + 随机旋转，25%占比'},
+        {'name': '菱形 (diamond)', 'key': 'diamond', 'desc': '旋转菱形，随机拉伸比例，25%占比'},
     ]
     
     cards = ""
     for si in shapes_info:
+        key = si['key']
+        if key == 'root':
+            # 根系数据集有专门的 detail 和 samples 图
+            detail_img = f"/results/dataset_preview/{key}_detail.png"
+            samples_img = f"/results/dataset_preview/{key}_samples.png"
+        else:
+            # 通用形状数据集使用 shapes_preview 中的预览图
+            detail_img = f"/results/shapes_preview/preview_{key}.png"
+            samples_img = f"/results/shapes_preview/preview_{key}.png"
         cards += f'''
         <div class="ds-card">
             <div class="ds-card-header">{si['name']}</div>
             <p class="ds-card-desc">{si['desc']}</p>
             <div class="ds-images">
-                <a href="/results/dataset_preview/{si['key']}_detail.png" target="_blank">
-                    <img src="/results/dataset_preview/{si['key']}_detail.png" 
+                <a href="{detail_img}" target="_blank">
+                    <img src="{detail_img}" 
                          alt="{si['name']}" loading="lazy" class="ds-img">
                 </a>
-                <a href="/results/preview_shapes/{si['key']}_samples.png" target="_blank">
-                    <img src="/results/preview_shapes/{si['key']}_samples.png" 
+                <a href="{samples_img}" target="_blank">
+                    <img src="{samples_img}" 
                          alt="{si['name']} samples" loading="lazy" class="ds-img">
                 </a>
             </div>
@@ -1206,13 +1539,46 @@ def generate_datasets_page() -> str:
     </div>
 
     <div class="section-title"><h2>数据集概览</h2><div class="line"></div></div>
+
+    <!-- 根系数据集 -->
+    <div class="ds-card" style="border-color:rgba(34,197,94,0.2);background:rgba(15,30,20,0.8);">
+        <div class="ds-card-header" style="color:#22c55e;">🌱 根系数据集 (Root Dataset)</div>
+        <p class="ds-card-desc">植物根系电导率成像数据集，包含直根型、须根型、鱼骨型三种根系结构。电导率范围：土壤 0.01 S/m，根系 0.05 S/m。</p>
+        <div class="ds-stats" style="margin-bottom:12px;">
+            <div class="ds-stat"><div class="ds-stat-value">1000</div><div class="ds-stat-label">训练样本</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">100</div><div class="ds-stat-label">验证样本</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">100</div><div class="ds-stat-label">测试样本</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">4424</div><div class="ds-stat-label">FEM 单元</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">5.3%</div><div class="ds-stat-label">平均根系覆盖率</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">1 频率</div><div class="ds-stat-label">测量频率</div></div>
+        </div>
+        <div class="ds-images">
+            <a href="/results/dataset_preview/root_detail.png" target="_blank">
+                <img src="/results/dataset_preview/root_detail.png"
+                     alt="Root dataset detail" loading="lazy" class="ds-img">
+            </a>
+            <a href="/results/dataset_preview/root_samples.png" target="_blank">
+                <img src="/results/dataset_preview/root_samples.png"
+                     alt="Root samples" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
+
+    <!-- 通用形状数据集 -->
+    <div class="section-title" style="margin-top:30px;"><h2>通用形状数据集（精细网格）</h2><div class="line"></div></div>
     <div class="ds-stats">
-        <div class="ds-stat"><div class="ds-stat-value">20000</div><div class="ds-stat-label">训练样本</div></div>
-        <div class="ds-stat"><div class="ds-stat-value">500</div><div class="ds-stat-label">验证样本</div></div>
-        <div class="ds-stat"><div class="ds-stat-value">500</div><div class="ds-stat-label">测试样本</div></div>
+        <div class="ds-stat"><div class="ds-stat-value">40</div><div class="ds-stat-label">预览样本</div></div>
+        <div class="ds-stat"><div class="ds-stat-value">6528</div><div class="ds-stat-label">FEM 单元</div></div>
         <div class="ds-stat"><div class="ds-stat-value">4</div><div class="ds-stat-label">形状类型</div></div>
-        <div class="ds-stat"><div class="ds-stat-value">3−10x</div><div class="ds-stat-label">对比度范围</div></div>
+        <div class="ds-stat"><div class="ds-stat-value">5x</div><div class="ds-stat-label">固定对比度</div></div>
         <div class="ds-stat"><div class="ds-stat-value">50/50</div><div class="ds-stat-label">边缘/中心</div></div>
+        <div class="ds-stat"><div class="ds-stat-value">-40~-20 dB</div><div class="ds-stat-label">噪声范围</div></div>
+    </div>
+    <div class="ds-images" style="margin-bottom:20px;">
+        <a href="/results/shapes_preview/preview_grid.png" target="_blank">
+            <img src="/results/shapes_preview/preview_grid.png"
+                 alt="All shapes preview" loading="lazy" class="ds-img" style="max-height:480px;">
+        </a>
     </div>
 
     <div class="section-title"><h2>形状类型预览</h2><div class="line"></div></div>
@@ -1220,6 +1586,113 @@ def generate_datasets_page() -> str:
         每行展示该形状的 <strong style="color:#94a3b8;">电导率分布 (Sigma)</strong> 和 <strong style="color:#94a3b8;">边界电压 (Voltage)</strong> (前2频率)。点击图片放大查看。
     </p>
     {cards}
+
+    <!-- ===== 增强版 v3 数据集 ===== -->
+    <div class="section-title" style="margin-top:40px;"><h2>🚀 增强版 v3 数据集（混合形状）</h2><div class="line"></div></div>
+    <div class="ds-card" style="border-color:rgba(251,191,36,0.2);background:rgba(30,20,10,0.8);">
+        <div class="ds-card-header" style="color:#fbbf24;">混合形状 EIT 数据集 v3</div>
+        <p class="ds-card-desc">
+            多样性增强版：6 种形状类型（含环形、近边界硬样本）、随机对比度 3x~10x、
+            3 个系统噪声测试集。用于 ConvSpatialEIT v3 训练。
+        </p>
+        <div class="ds-stats" style="margin-bottom:12px;">
+            <div class="ds-stat"><div class="ds-stat-value">20,000</div><div class="ds-stat-label">训练样本</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">500</div><div class="ds-stat-label">验证样本</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">2,000</div><div class="ds-stat-label">测试样本 (4组×500)</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">4424</div><div class="ds-stat-label">FEM 单元</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">6</div><div class="ds-stat-label">形状类型</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">3x~10x</div><div class="ds-stat-label">对比度范围</div></div>
+        </div>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v3/all_shapes_grid.png" target="_blank">
+                <img src="/results/dataset_preview_v3/all_shapes_grid.png"
+                     alt="v3 all shapes" loading="lazy" class="ds-img" style="max-height:480px;">
+            </a>
+        </div>
+    </div>
+
+    <div class="section-title"><h2>v3 形状类型预览</h2><div class="line"></div></div>
+    <p style="color:#667788;font-size:13px;margin-bottom:16px;">
+        每行展示该形状的 <strong style="color:#94a3b8;">电导率分布 (σ Map, FEM 网格)</strong> 和 <strong style="color:#94a3b8;">边界电压曲线 (208 通道)</strong>。点击图片放大查看。
+    </p>
+
+    <div class="ds-card">
+        <div class="ds-card-header">圆形 (Circle)</div>
+        <p class="ds-card-desc">单圆内含物，随机位置+半径，约占训练集 20%</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v3/circle_preview.png" target="_blank">
+                <img src="/results/dataset_preview_v3/circle_preview.png" alt="v3 circle" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
+    <div class="ds-card">
+        <div class="ds-card-header">椭圆 (Ellipse)</div>
+        <p class="ds-card-desc">椭圆内含物，随机长短轴+旋转，约占 18%</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v3/ellipse_preview.png" target="_blank">
+                <img src="/results/dataset_preview_v3/ellipse_preview.png" alt="v3 ellipse" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
+    <div class="ds-card">
+        <div class="ds-card-header">双圆 (Double Circle)</div>
+        <p class="ds-card-desc">两个不重叠的圆内含物，约占 18%</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v3/double_circle_preview.png" target="_blank">
+                <img src="/results/dataset_preview_v3/double_circle_preview.png" alt="v3 double_circle" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
+    <div class="ds-card">
+        <div class="ds-card-header">环形 (Ring)</div>
+        <p class="ds-card-desc">空心圆环，测试边缘检测能力，约占 15%</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v3/ring_preview.png" target="_blank">
+                <img src="/results/dataset_preview_v3/ring_preview.png" alt="v3 ring" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
+    <div class="ds-card">
+        <div class="ds-card-header">近边界 (Near-Boundary)</div>
+        <p class="ds-card-desc">内含物强制靠近桶壁（距边界 &lt; 2.5cm），EIT 最难场景，约占 15%</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v3/near_boundary_preview.png" target="_blank">
+                <img src="/results/dataset_preview_v3/near_boundary_preview.png" alt="v3 near_boundary" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
+
+    <div class="section-title" style="margin-top:30px;"><h2>v3 系统噪声测试集</h2><div class="line"></div></div>
+    <p style="color:#667788;font-size:13px;margin-bottom:16px;">
+        固定噪声电平的专用测试集，用于评估模型在不同噪声下的鲁棒性。
+    </p>
+    <div class="ds-card">
+        <div class="ds-card-header" style="color:#22c55e;">低噪声测试 (-30 dB)</div>
+        <p class="ds-card-desc">500 样本，固定 -30dB 加性噪声</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v3/test_low_noise_preview.png" target="_blank">
+                <img src="/results/dataset_preview_v3/test_low_noise_preview.png" alt="v3 low noise" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
+    <div class="ds-card">
+        <div class="ds-card-header" style="color:#ef4444;">高噪声测试 (-15 dB)</div>
+        <p class="ds-card-desc">500 样本，固定 -15dB 加性噪声（高噪声挑战）</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v3/test_high_noise_preview.png" target="_blank">
+                <img src="/results/dataset_preview_v3/test_high_noise_preview.png" alt="v3 high noise" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
+    <div class="ds-card">
+        <div class="ds-card-header" style="color:#f59e0b;">近边界测试 (-25 dB)</div>
+        <p class="ds-card-desc">500 样本，内含物靠近边界 + 固定 -25dB 噪声</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v3/test_near_boundary_preview.png" target="_blank">
+                <img src="/results/dataset_preview_v3/test_near_boundary_preview.png" alt="v3 near_boundary noise" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
 </div></body></html>'''
     return html
 
@@ -1229,7 +1702,7 @@ def generate_datasets_page() -> str:
 class DynamicHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         # /api/git-pull -> execute git pull and return result
-        if path == '/api/git-pull':
+        if self.path == '/api/git-pull':
             try:
                 result = subprocess.run(
                     ['git', 'pull'],
@@ -1239,8 +1712,7 @@ class DynamicHandler(BaseHTTPRequestHandler):
                 success = result.returncode == 0
                 output = result.stdout + result.stderr
                 if len(output) > 2000:
-                    output = output[:2000] + '
-...(truncated)'
+                    output = output[:2000] + '\n...(truncated)'
                 data = json.dumps({
                     'success': success,
                     'output': output.strip(),
@@ -1264,7 +1736,8 @@ class DynamicHandler(BaseHTTPRequestHandler):
             return
 
         parsed = urlparse(self.path)
-        path = parsed.path
+        import urllib.parse
+        path = urllib.parse.unquote(parsed.path)
 
         # / -> homepage with training card injected
         if path == '/' or path == '/index.html':
@@ -1394,6 +1867,18 @@ class DynamicHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', len(data))
+            # 下载模式: ?dl=1 触发 Content-Disposition
+            if '?' in self.path and 'dl=1' in self.path:
+                from urllib.parse import quote
+                fname = os.path.basename(local_path)
+                # RFC 5987: encode non-ASCII filenames for Content-Disposition
+                try:
+                    fname.encode('ascii')
+                    self.send_header('Content-Disposition',
+                                     f'attachment; filename="{fname}"')
+                except UnicodeEncodeError:
+                    self.send_header('Content-Disposition',
+                                     f"attachment; filename*=UTF-8''{quote(fname)}")
             # Cache images for 1 hour, HTML for 5 min
             if content_type and 'image' in content_type:
                 self.send_header('Cache-Control', 'public, max-age=3600')
@@ -1404,6 +1889,46 @@ class DynamicHandler(BaseHTTPRequestHandler):
             return
 
         self.send_error(404)
+
+    def do_POST(self):
+        # /api/training/delete -> delete training records
+        if self.path == '/api/training/delete':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length)
+                data = json.loads(body)
+                run_ids = data.get('run_ids', [])
+                if not run_ids:
+                    raise ValueError("No run_ids provided")
+
+                import shutil
+                deleted = []
+                for run_id in run_ids:
+                    run_dir = os.path.join(TRAINING_RECORDS_DIR, run_id)
+                    if os.path.isdir(run_dir):
+                        shutil.rmtree(run_dir)
+                        deleted.append(run_id)
+
+                # 更新 index.json
+                index = _recorder_mod.load_index()
+                index["runs"] = [r for r in index["runs"] if r["run_id"] not in deleted]
+                _recorder_mod.save_index(index)
+
+                resp = json.dumps({"success": True, "deleted": deleted})
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', len(resp.encode()))
+                self.end_headers()
+                self.wfile.write(resp.encode())
+            except Exception as e:
+                resp = json.dumps({"success": False, "error": str(e)})
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', len(resp.encode()))
+                self.end_headers()
+                self.wfile.write(resp.encode())
+            return
+        self.send_error(405)
 
     def _send_html(self, html: str):
         data = html.encode()

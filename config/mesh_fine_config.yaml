@@ -1,16 +1,13 @@
 # ═══════════════════════════════════════════════════════════
 # 硬件设定：圆柱形桶（直径 20 cm），单环 16 电极，2D 截面采集
+# 精细网格版本 (h0=0.0033 → ~6500 单元)
 # ═══════════════════════════════════════════════════════════
 
 mesh:
   # 2D 圆形域 = 桶的横截面
   type: "circle"
   radius: 0.10               # 桶半径 10 cm（直径 20 cm，典型盆栽桶）
-  mesh_resolution: 0.004    # 最大单元边长 4 mm → 约 6000-7000 单元（中等精度，训练更快）
-  # 若需矩形根箱，切换为：
-  # type: "rectangle"
-  # width: 0.2
-  # height: 0.3
+  mesh_resolution: 0.0033    # 最大单元边长 → 约 6500 单元（5-7k 范围内）
 
 electrodes:
   count: 16                  # 单环 16 电极（标准 EIT 配置）
@@ -20,17 +17,17 @@ electrodes:
 stimulation:
   pattern: "adjacent"        # 相邻激励模式
   amplitude: 1e-3            # 激励电流 (A) = 1mA
-  frequencies: [1000, 5000, 10000, 50000, 100000, 500000]  # 6 频率（pyEIT 1.2.4 返回相同结果，用于多频融合训练）
+  frequencies: [1000]        # 单频率模式: 1kHz
 
 ground_truth:
-  conductivity_soil: 0.01    # 土壤电导率 (S/m)
-  conductivity_root: 0.05    # 根组织电导率 (S/m)
+  conductivity_soil: 0.1     # 土壤电导率 (S/m)
+  conductivity_root: 0.5     # 根组织电导率 (S/m)
   conductivity_air: 1e-8     # 孔隙/空气电导率
   contrast_ratio: 5.0        # 根/土对比度
 
 data:
-  train_samples: 1000         # 训练集样本数（降低到1200总量）
-  val_samples: 100            # 验证集样本数
-  test_samples: 100           # 测试集样本数
-  noise_level_db: [-40, -20]   # 信噪比范围 (dB)
+  train_samples: 1000
+  val_samples: 100
+  test_samples: 100
+  noise_level_db: [-40, -20]
   random_seed: 42

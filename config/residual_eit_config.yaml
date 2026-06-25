@@ -1,4 +1,4 @@
-# ResidualEIT route-B configuration.
+# ResidualEIT route-B configuration for shapes dataset.
 
 model:
   name: "residual_eit"
@@ -10,12 +10,12 @@ model:
   # or after adding chunked/sparse attention.
   use_gat: false
   n_heads: 4
-  sigma_min: 0.005
-  sigma_max: 0.1
-  delta_scale: 0.02
+  sigma_min: 0.05
+  sigma_max: 0.60
+  delta_scale: 0.20
 
 physics:
-  sigma_ref: 0.01
+  sigma_ref: 0.1
 
 training:
   batch_size: 2
@@ -27,18 +27,16 @@ training:
   grad_clip: 1.0
   voltage_mask_ratio: 0.0
 
-  # For weak supervision set supervised to 0.1 or 0.01.
-  # For fully unsupervised training set supervised to 0.0.
   loss_weights:
     supervised: 1.0
-    residual_measurement: 1.0
-    tv: 0.03
-    delta_l1: 0.01
-    delta_smooth: 0.02
+    residual_measurement: 0.5
+    tv: 0.02
+    delta_l1: 0.005
+    delta_smooth: 0.01
 
 data:
-  dataset_path: "./data/generated/eit_dataset.h5"
-  jacobian_path: "./data/generated/jacobian.npy"
+  dataset_path: "./data/generated/shapes_dataset/shapes_dataset.h5"
+  jacobian_path: "./data/generated/shapes_dataset/jacobian.npy"
   num_workers: 4
   prefetch_factor: 2
 

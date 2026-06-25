@@ -5,7 +5,7 @@ Conv-Spatial EIT 完整验证脚本
 在测试集上全面评估，输出指标 + 可视化。
 
 用法:
-    python evaluate_conv_spatial_full.py --checkpoint checkpoints/conv_spatial_best.pt
+    python evaluate_conv_spatial_full.py --checkpoint checkpoints/<run_id>/best.pt
 """
 
 import os, sys, json, argparse, time

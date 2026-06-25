@@ -5,7 +5,7 @@ Conv-Spatial EIT 验证脚本
 
 用法:
     python evaluate_conv_spatial.py
-    python evaluate_conv_spatial.py --checkpoint checkpoints/conv_spatial_best.pt
+    python evaluate_conv_spatial.py --checkpoint checkpoints/<run_id>/best.pt
     python evaluate_conv_spatial.py --n_samples 4
 """
 

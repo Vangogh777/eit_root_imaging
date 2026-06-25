@@ -81,7 +81,9 @@ def process_split(group, split_name, solver, reconstructor, J, sigma_ref, force=
         V0 = J @ (sigma_i - sigma_ref)
         r = V_diff - V0.astype(np.float32)
         g = JT @ r
-        g = (g - g.mean()) / (g.std() + 1e-6)
+        # 保留原始值，只clip极端值以避免数值问题
+        # 不做per-sample标准化，保留样本间差异
+        g = np.clip(g, -100, 100)  # clip极端值
 
         sigma_0[i] = sigma_i
         voltage_residual[i] = r.astype(np.float32)

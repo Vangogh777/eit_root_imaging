@@ -325,7 +325,7 @@ class ConvSpatialEIT(nn.Module):
                 dropout: float = 0.1,
                 sigma_min: float = 0.005,
                  sigma_max: float = 0.1,
-                 use_gat: bool = True,
+                 use_gat: bool = False,
                  n_heads: int = 4):
         super().__init__()
 
@@ -335,7 +335,7 @@ class ConvSpatialEIT(nn.Module):
         self.use_gat = use_gat
         self.n_heads = n_heads
 
-        # 0. 多频融合层（6频 → 1频，自动学习权重）
+        # 0. 多频融合层（6频 → 1频）
         self.freq_fusion = FrequencyCrossAttention(n_freq=n_frequencies, d_model=64)
 
         # 1. Conv Encoder（单频输入）
@@ -360,6 +360,7 @@ class ConvSpatialEIT(nn.Module):
             nn.GELU(),
             nn.Linear(gnn_hidden // 4, 1),
         )
+
 
         self._edge_idx = None
         self._edge_weight = None
@@ -590,10 +591,11 @@ class ConvSpatialEIT(nn.Module):
         # 5c. 最终输出: σ = Sigmoid(σ₀ + Δσ) → [σ_min, σ_max]
         sigma_raw = sigma_raw_0 + delta
         sigma = torch.sigmoid(sigma_raw) * (self.sigma_max - self.sigma_min) + self.sigma_min
+        sigma_0_out = torch.sigmoid(sigma_raw_0) * (self.sigma_max - self.sigma_min) + self.sigma_min
 
         return {
             'sigma': sigma,
-            'sigma_0': torch.sigmoid(sigma_raw_0) * (self.sigma_max - self.sigma_min) + self.sigma_min,
+            'sigma_0': sigma_0_out,
             'delta': delta if isinstance(delta, torch.Tensor) else torch.zeros_like(sigma),
         }
 

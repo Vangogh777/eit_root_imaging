@@ -362,29 +362,97 @@ class AdaptiveLossWeighter(nn.Module):
         total = 0.0
         for i, (name, loss) in enumerate(losses.items()):
             precision = torch.exp(-self.log_vars[i])
-            total += precision * loss + self.log_vars[i] * 0.5
+            # loss 量级参考: 取第一个非零 loss 的 detach 值作为正则缩放
+            loss_scale = loss.detach().abs().clamp_min(1e-8)
+            total += precision * loss + self.log_vars[i] * 0.5 * loss_scale
         return total
 
 
-def edge_weighted_mse(pred, target, sigma_soil=0.01, sigma_root=0.05):
+def edge_weighted_mse(pred, target, sigma_bg=0.01):
     """
-    边缘加权 MSE 损失
-    ====================
-    对 conductivity 从土壤过渡到根部的"边缘区域"赋予更高权重 (3x)，
-    迫使模型更精确地还原根与土壤之间的过渡边界。
-
-    参数:
-        pred: (B, n_elems) 预测电导率
-        target: (B, n_elems) 真实电导率
-        sigma_soil: 土壤背景电导率，默认 0.01 S/m
-        sigma_root: 根部电导率，默认 0.05 S/m
-
-    返回:
-        loss: 标量加权 MSE 损失
+    旧版边缘加权 MSE (保留兼容)
+    对过渡区给 3x 权重
     """
-    low = sigma_soil * 1.2
-    high = sigma_root * 0.9
+    low = sigma_bg * 1.2
+    high = sigma_bg * 5.0 * 0.9
     edge_mask = (target > low) & (target < high)
     weights = torch.where(edge_mask, 3.0, 1.0)
     loss = (weights * (pred - target).pow(2)).mean()
+    return loss
+
+
+def inclusion_weighted_mse(pred, target, sigma_bg=0.01, max_weight=20.0):
+    """
+    自适应加权 MSE (v3)
+    =====================
+    按每个元素偏离背景的程度自适应加权:
+    - 背景附近 (σ≈0.01): weight≈1
+    - 内含物区域 (σ>>0.01): weight≈20
+    - 过渡区自动获得中间权重
+
+    这解决了 95% 背景元素主导训练梯度的问题。
+
+    参数:
+        pred: (B, n_elems)
+        target: (B, n_elems)
+        sigma_bg: 背景电导率
+        max_weight: 内含物区域最大权重
+    """
+    deviation = torch.abs(target - sigma_bg)
+    # 逐样本归一化, 然后映射到 [1, max_weight]
+    max_dev = deviation.amax(dim=1, keepdim=True) + 1e-8
+    norm_dev = deviation / max_dev
+    weight = 1.0 + (max_weight - 1.0) * norm_dev
+    return (weight * (pred - target).pow(2)).mean()
+
+
+def contrast_loss(pred, target):
+    """
+    对比度保持损失
+    ===============
+    确保预测的峰值范围匹配真实值.
+    防止模型把所有东西都预测成背景值.
+
+    返回:
+        scalar loss
+    """
+    pred_max = pred.amax(dim=1)
+    target_max = target.amax(dim=1)
+    return ((pred_max - target_max) / (target_max + 1e-8)).pow(2).mean()
+
+
+def gradient_loss(pred, target, edge_index):
+    """
+    空间梯度保持损失
+    =================
+    鼓励预测在网格上保持与 GT 相同的空间梯度分布,
+    从而产生尖锐的边缘而非模糊过渡.
+
+    参数:
+        pred, target: (B, n_elems)
+        edge_index: (2, n_edges) 网格边索引
+    """
+    src, dst = edge_index[0], edge_index[1]
+    pred_grad = (pred[:, src] - pred[:, dst]).abs()
+    target_grad = (target[:, src] - target[:, dst]).abs()
+    return (pred_grad - target_grad).pow(2).mean()
+
+
+def combined_supervised_loss(pred, target, edge_index=None, sigma_bg=0.01,
+                              w_mse=1.0, w_contrast=0.1, w_grad=0.05):
+    """
+    组合有监督损失 (v3)
+    ===================
+    L = w_mse * inclusion_weighted_mse + w_contrast * contrast_loss
+      + w_grad * gradient_loss
+
+    注意: 训练初期建议用 w_contrast=0.1, w_grad=0.05；
+          收敛后可提高到 w_contrast=0.5, w_grad=0.1
+    """
+    # 对 pred 做软约束，防止无界输出导致 loss 爆炸
+    pred = torch.clamp(pred, -0.1, 0.2)  # 物理范围外也允许但限制极端值
+    loss = w_mse * inclusion_weighted_mse(pred, target, sigma_bg)
+    loss = loss + w_contrast * contrast_loss(pred, target)
+    if edge_index is not None and w_grad > 0:
+        loss = loss + w_grad * gradient_loss(pred, target, edge_index)
     return loss

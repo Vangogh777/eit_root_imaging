@@ -222,7 +222,8 @@ def plot_loss_curve(save_dir):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", default="checkpoints/conv_spatial_final.pt")
+    parser.add_argument("--checkpoint", default=None,
+                        help="checkpoint 路径，例如 checkpoints/<run_id>/best.pt")
     parser.add_argument("--n_samples", type=int, default=200, help="验证样本数")
     parser.add_argument("--output", default="results/validation_conv")
     parser.add_argument("--batch_size", type=int, default=32)

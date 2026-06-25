@@ -135,7 +135,7 @@ class ResidualEIT(nn.Module):
         pe = self._build_position_encoding(centers)
         self.pos_encoding = pe
 
-        node_dim = 3 + pe.shape[1]  # sigma_0, g, |g|, PE
+        node_dim = 4 + pe.shape[1]  # sigma_0, g, g_norm, |g|, PE (增加g_norm)
         self.mesh_gnn = ResidualMeshGNN(
             node_dim=node_dim,
             global_dim=self.hidden_dim,
@@ -183,10 +183,17 @@ class ResidualEIT(nn.Module):
 
         z_v = self.voltage_encoder(voltages)
         pe = self.pos_encoding.to(device).unsqueeze(0).expand(B, -1, -1)
+
+        # 对g进行batch-level归一化（保留样本间差异）
+        g_mean = g.mean()
+        g_std = g.std() + 1e-6
+        g_norm = (g - g_mean) / g_std
+
         node_feat = torch.cat([
             sigma_0.unsqueeze(-1),
-            g.unsqueeze(-1),
-            g.abs().unsqueeze(-1),
+            g.unsqueeze(-1),       # 原始g值
+            g_norm.unsqueeze(-1),  # 归一化后的g
+            g.abs().unsqueeze(-1), # g的绝对值
             pe,
         ], dim=-1)
 

@@ -106,7 +106,10 @@ class EITDataset(Dataset):
             V = torch.from_numpy(grp['voltages'][idx]).float()
             sigma = torch.from_numpy(grp['sigmas'][idx]).float()
             mask = torch.from_numpy(grp['masks'][idx]).float()
-            noise_db = torch.tensor(grp['noise_db'][idx], dtype=torch.float32)
+            noise_db = torch.tensor(
+                grp['noise_db'][idx] if 'noise_db' in grp else 0.0,
+                dtype=torch.float32
+            )
             if self.load_residual_features:
                 sigma_0 = torch.from_numpy(grp['sigma_0'][idx]).float()
                 physics_g = torch.from_numpy(grp['physics_g'][idx]).float()
@@ -258,25 +261,31 @@ class EITDataModule:
                  num_workers: int = 4, prefetch_factor: int = 2,
                  voltage_mask_ratio: float = 0.3,
                  jacobian_path: Optional[str] = None,
-                 load_residual_features: bool = False):
+                 load_residual_features: bool = False,
+                 use_memory: bool = False):
 
-        self.train_dataset = EITDataset(
-            h5_path, split='train',
+        DatasetCls = MemoryEITDataset if use_memory else EITDataset
+        base_kwargs = dict(
             voltage_mask_ratio=voltage_mask_ratio,
-            jacobian_path=jacobian_path,
-            load_residual_features=load_residual_features
+            load_residual_features=load_residual_features,
         )
-        self.val_dataset = EITDataset(
+        if not use_memory:
+            base_kwargs['jacobian_path'] = jacobian_path
+
+        self.train_dataset = DatasetCls(
+            h5_path, split='train', **base_kwargs
+        )
+        self.val_dataset = DatasetCls(
             h5_path, split='val',
             voltage_mask_ratio=0.0,
-            jacobian_path=jacobian_path,
-            load_residual_features=load_residual_features
+            load_residual_features=load_residual_features,
+            **({} if use_memory else {'jacobian_path': jacobian_path}),
         )
-        self.test_dataset = EITDataset(
+        self.test_dataset = DatasetCls(
             h5_path, split='test',
             voltage_mask_ratio=0.0,
-            jacobian_path=jacobian_path,
-            load_residual_features=load_residual_features
+            load_residual_features=load_residual_features,
+            **({} if use_memory else {'jacobian_path': jacobian_path}),
         )
 
         self.batch_size = batch_size

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from collections import defaultdict
+from datetime import datetime
 from typing import Dict, Optional
 
 import numpy as np
@@ -26,6 +27,7 @@ from training.residual_loss import (
     ResidualSmoothnessLoss,
     weighted_residual_loss,
 )
+from training.recorder import TrainingRecorder
 
 
 class ResidualEITTrainer:
@@ -44,6 +46,10 @@ class ResidualEITTrainer:
         self.loss_weights = self.cfg["training"]["loss_weights"]
         self.best_val_re = float("inf")
 
+        # Initialize recorder
+        run_name = self.cfg.get("output", {}).get("run_name", "residual_eit")
+        self.recorder = TrainingRecorder(run_name)
+
     def setup(self, model: Optional[ResidualEIT] = None, datamodule: Optional[EITDataModule] = None):
         data_cfg = self.cfg["data"]
         train_cfg = self.cfg["training"]
@@ -59,6 +65,7 @@ class ResidualEITTrainer:
                 voltage_mask_ratio=train_cfg.get("voltage_mask_ratio", 0.0),
                 jacobian_path=data_cfg.get("jacobian_path"),
                 load_residual_features=True,
+                use_memory=True,
             )
         else:
             self.dm = datamodule
@@ -96,7 +103,7 @@ class ResidualEITTrainer:
         self.model.to(self.device)
 
         self.loss_fns = {
-            "supervised": RelativeMSELoss(),
+            "supervised": RelativeMSELoss(inclusion_weight=10.0),
             "residual_measurement": ResidualMeasurementConsistencyLoss(J),
             "tv": TVRegularizationLoss(
                 element_centers=torch.from_numpy(centers).float(),
@@ -124,6 +131,18 @@ class ResidualEITTrainer:
         params = sum(p.numel() for p in self.model.parameters())
         print(f"[ResidualEITTrainer] device={self.device}, params={params:,}")
 
+        # Save metadata to recorder
+        self.recorder.save_meta({
+            "hidden_dim": model_cfg.get("hidden_dim", 256),
+            "gnn_layers": model_cfg.get("gnn_layers", 4),
+            "batch_size": train_cfg["batch_size"],
+            "model_params": params,
+            "mode": "residual_weakly_supervised",
+            "epochs": train_cfg["epochs"],
+            "learning_rate": train_cfg.get("learning_rate", 3e-4),
+            "use_gat": model_cfg.get("use_gat", True),
+        })
+
     def train(self):
         train_cfg = self.cfg["training"]
         output_cfg = self.cfg.get("output", {})
@@ -135,12 +154,17 @@ class ResidualEITTrainer:
         best_state = None
         best_epoch = 0
 
+        # Set recorder status to running
+        self.recorder.set_status("running")
+
         for epoch in range(1, epochs + 1):
             train_metrics = self._run_epoch(train_loader, train=True, epoch=epoch)
             val_metrics = self._run_epoch(val_loader, train=False, epoch=epoch)
             self.scheduler.step()
 
             lr = self.optimizer.param_groups[0]["lr"]
+
+            # More detailed logging
             print(
                 f"Epoch {epoch:03d}/{epochs} | "
                 f"train_loss={train_metrics['loss']:.6f} | "
@@ -148,6 +172,28 @@ class ResidualEITTrainer:
                 f"val_RE={val_metrics['re']:.4f} | "
                 f"val_coarse_RE={val_metrics['coarse_re']:.4f} | "
                 f"lr={lr:.2e}"
+            )
+
+            # Log loss components every 10 epochs
+            if epoch % 10 == 0 or epoch == 1:
+                print(
+                    f"  Loss components: "
+                    f"sup={train_metrics.get('supervised', 0):.4f} | "
+                    f"res_meas={train_metrics.get('residual_measurement', 0):.4f} | "
+                    f"tv={train_metrics.get('tv', 0):.4f} | "
+                    f"delta_l1={train_metrics.get('delta_l1', 0):.4f}"
+                )
+
+            # Log epoch to recorder (supervised phase)
+            self.recorder.log_epoch(
+                phase="supervised",
+                epoch=epoch,
+                loss=train_metrics["loss"],
+                val_loss=val_metrics["loss"],
+                re=val_metrics["re"],
+                coarse_re=val_metrics["coarse_re"],
+                cc=val_metrics["cc"],
+                lr=lr,
             )
 
             if val_metrics["re"] < self.best_val_re:
@@ -163,7 +209,28 @@ class ResidualEITTrainer:
                 os.makedirs(os.path.dirname(save_path), exist_ok=True)
                 torch.save(best_state, save_path)
 
+                # Log best model saved event
+                self.recorder.log_event("best_model_saved", epoch=epoch, re=val_metrics["re"])
+
         print(f"[ResidualEITTrainer] best val RE={self.best_val_re:.4f} at epoch {best_epoch}")
+
+        # Set recorder status to completed and save best results
+        self.recorder.save_meta({
+            "hidden_dim": self.cfg["model"].get("hidden_dim", 256),
+            "gnn_layers": self.cfg["model"].get("gnn_layers", 4),
+            "batch_size": self.cfg["training"]["batch_size"],
+            "model_params": sum(p.numel() for p in self.model.parameters()),
+            "mode": "residual_weakly_supervised",
+            "epochs": self.cfg["training"]["epochs"],
+            "learning_rate": self.cfg["training"].get("learning_rate", 3e-4),
+            "use_gat": self.cfg["model"].get("use_gat", True),
+            "best_re": f"{self.best_val_re:.4f}",
+            "best_epoch": best_epoch,
+            "status": "completed",
+            "end_time": datetime.now().isoformat(),
+        })
+        self.recorder.set_status("completed")
+
         return best_state
 
     def _run_epoch(self, loader, train: bool, epoch: int) -> Dict[str, float]:
@@ -180,6 +247,7 @@ class ResidualEITTrainer:
             sigma_0 = batch["sigma_0"].to(self.device)
             g = batch["physics_g"].to(self.device)
             residual = batch["voltage_residual"].to(self.device)
+            masks = batch["masks"].to(self.device)
 
             with torch.set_grad_enabled(train):
                 out = self.model(
@@ -189,7 +257,8 @@ class ResidualEITTrainer:
                     residual=residual,
                 )
                 losses = {
-                    "supervised": self.loss_fns["supervised"](out["sigma"], target),
+                    "supervised": self.loss_fns["supervised"](
+                        out["sigma"], target, masks),
                     "residual_measurement": self.loss_fns["residual_measurement"](
                         out["delta_sigma"], residual),
                     "tv": self.loss_fns["tv"](out["sigma"]),

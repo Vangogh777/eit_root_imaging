@@ -75,10 +75,20 @@ class ResidualSmoothnessLoss(nn.Module):
 
 
 class RelativeMSELoss(nn.Module):
-    """Supervised warm-up loss used only when ground truth sigma is available."""
+    """Supervised loss with optional mask weighting to balance inclusion vs background."""
 
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        return ((pred - target).pow(2) / (target.pow(2) + 1e-6)).mean()
+    def __init__(self, inclusion_weight: float = 10.0):
+        super().__init__()
+        self.inclusion_weight = inclusion_weight
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor,
+                masks: Optional[torch.Tensor] = None) -> torch.Tensor:
+        diff = (pred - target) ** 2
+        if masks is not None:
+            # 内含物区域放大 inclusion_weight 倍
+            weight = 1.0 + (self.inclusion_weight - 1.0) * masks
+            return (weight * diff).mean()
+        return diff.mean()
 
 
 def weighted_residual_loss(losses: Dict[str, torch.Tensor], weights: Dict[str, float]) -> torch.Tensor:
