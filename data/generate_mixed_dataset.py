@@ -1,7 +1,12 @@
 """
-多样化 EIT 数据集生成 v3 (增强版)
+多样化 EIT 数据集生成 v4 (多背景增强版)
 =================================
-生成多种形状内含物的 EIT 训练/测试数据。
+生成多种形状内含物的 EIT 训练/测试数据，支持多背景电导率域泛化。
+
+v4 新增:
+  - 多背景电导率支持 (0.005 ~ 0.3 S/m, 6档)
+  - 对比度外推测试集 (contrast 6x~15x, OOD测试)
+  - 背景电导率元数据追踪
 
 v3 新增:
   - 环形内含物 (ring)
@@ -18,8 +23,8 @@ v3 新增:
   - near_boundary: 近边圆/椭圆 (15%, hardest)
 
 特性:
-  - 背景均匀 (0.01 S/m)
-  - 内含物随机位置、大小、对比度 (3x ~ 10x)
+  - 多背景电导率 (默认随机从6档采样, 可通过 --uniform_bg 固定为0.01)
+  - 内含物随机位置、大小、对比度 (3x ~ 10x; 外推测试集 6x ~ 15x)
   - 支持边缘/中心平衡采样
 """
 import os, sys, argparse, yaml
@@ -32,6 +37,10 @@ from data.eit_forward import EITForwardSolver
 
 DOMAIN_RADIUS = 0.10
 BG_SIGMA = 0.01
+# Multi-background support for domain generalization
+BACKGROUND_SIGMAS = [0.005, 0.01, 0.02, 0.05, 0.1, 0.3]
+BACKGROUND_WEIGHTS = [0.15, 0.25, 0.20, 0.20, 0.15, 0.05]  # weight toward common values
+
 INC_SIGMA_BASE = 0.05  # 基础内含物电导率 (会被 contrast 缩放)
 
 SHAPE_TYPES = ['circle', 'ellipse', 'double_circle', 'square', 'ring', 'near_boundary']
@@ -94,12 +103,12 @@ def _gen_ellipse(rng, centers_np):
 
 
 def _gen_double_circle(rng, centers_np):
-    """双圆 (两个不重叠的圆)"""
+    """双圆 (两个不重叠的圆, 最小半径0.012, 确保两个圆都可见)"""
     mask = np.zeros(len(centers_np), dtype=bool)
     positions = []
     for _ in range(2):
         for attempt in range(20):
-            r = rng.uniform(0.008, 0.025)
+            r = rng.uniform(0.012, 0.028)
             cx, cy = _sample_position(rng, r)
             # 确保与已放置的圆不重叠
             ok = True
@@ -182,34 +191,79 @@ SHAPE_GENERATORS = {
 }
 
 
+# ─── 扩散模型平滑 ───
+_adj = None
+_inv_deg = None
+SMOOTH_ITERS = 1
+SMOOTH_STRENGTH = 0.10
+
+
+def _build_adjacency(elements, n_elems):
+    """构建 FEM 网格邻接矩阵 (用于图 Laplacian 平滑)"""
+    from scipy.sparse import coo_matrix
+    rows, cols, data = [], [], []
+    for i in range(n_elems):
+        nbs = set()
+        for tri in elements:
+            if i in tri:
+                for j in tri:
+                    if j != i:
+                        nbs.add(j)
+        for nb in nbs:
+            rows.append(i); cols.append(nb); data.append(1.0)
+    adj = coo_matrix((data, (rows, cols)), shape=(n_elems, n_elems)).tocsr()
+    deg = np.array(adj.sum(axis=1)).flatten()
+    deg[deg == 0] = 1.0
+    return adj, 1.0 / deg
+
+
+def _apply_smooth(sigma):
+    """图 Laplacian 平滑: 将硬边界变成连续过渡, 产生适合扩散模型训练的 σ 分布"""
+    global _adj, _inv_deg
+    s = sigma.copy().astype(np.float64)
+    for _ in range(SMOOTH_ITERS):
+        s = (1 - SMOOTH_STRENGTH) * s + SMOOTH_STRENGTH * (_adj.dot(s) * _inv_deg)
+    return s.astype(np.float32)
+
+
 def _worker_init(config_path):
-    global _solver
+    global _solver, _adj, _inv_deg
     _solver = EITForwardSolver(config_path)
+    # 预构建邻接矩阵用于平滑
+    _adj, _inv_deg = _build_adjacency(_solver.mesh.element, _solver.n_elems)
 
 
-def _generate_one(seed, fixed_noise_db=None):
+def _generate_one(seed, fixed_noise_db=None, bg_sigma=None, contrast_range=(3.0, 10.0)):
     """生成一个随机形状样本
-    
+
     参数:
         seed: 随机种子
         fixed_noise_db: 若指定，使用固定噪声电平而非随机 (用于系统测试集)
+        bg_sigma: 背景电导率, None时使用全局 BG_SIGMA (0.01)
+        contrast_range: (min_contrast, max_contrast) 对比度范围
     """
     global _solver
     rng = np.random.RandomState(seed)
     centers = _solver.element_centers
     n_elems = _solver.n_elems
+    if bg_sigma is None:
+        bg_sigma = BG_SIGMA
 
     # 随机选形状类型
     shape = rng.choice(SHAPE_TYPES, p=SHAPE_WEIGHTS)
     gen_fn = SHAPE_GENERATORS[shape]
     mask, cx, cy, max_r, shape_name = gen_fn(rng, centers)
 
-    # 随机对比度 (3x ~ 10x)
-    contrast = rng.uniform(3.0, 10.0)
-    inc_sigma = BG_SIGMA * contrast
+    # 随机对比度
+    contrast = rng.uniform(contrast_range[0], contrast_range[1])
+    inc_sigma = bg_sigma * contrast
 
-    sigma = np.full(n_elems, BG_SIGMA, dtype=np.float32)
+    sigma = np.full(n_elems, bg_sigma, dtype=np.float32)
     sigma[mask] = inc_sigma
+
+    # 扩散模型专用: 图 Laplacian 平滑 → 连续 σ 分布
+    sigma = _apply_smooth(sigma)
+    sigma = np.clip(sigma, bg_sigma * 0.95, inc_sigma * 1.02)
 
     # 求解绝对电压（非差分，模拟实际硬件采集）
     V_abs = _solver.solve_current(sigma)          # (n_meas,)
@@ -239,15 +293,23 @@ def _generate_one(seed, fixed_noise_db=None):
         'contrast': contrast,
         'cx': float(cx), 'cy': float(cy),
         'edge_dist': edge_dist,
+        'bg_sigma': float(bg_sigma),
     }
+
+
+def _generate_one_extrap(seed, fixed_noise_db=None, bg_sigma=None):
+    """Generate sample with extrapolated contrast for OOD testing (contrast [6, 15])"""
+    return _generate_one(seed, fixed_noise_db=fixed_noise_db, bg_sigma=bg_sigma,
+                         contrast_range=(6.0, 15.0))
 
 
 def generate_dataset(config_path="config/mesh_config.yaml",
                      n_train=10000, n_val=500, n_test=200,
                      output_dir="data/generated",
                      workers=0, seed=42,
-                     edge_ratio=0.5, edge_threshold=0.05):
-    """生成多样化数据集 (v3 增强版)"""
+                     edge_ratio=0.5, edge_threshold=0.05,
+                     uniform_bg=False):
+    """生成多样化数据集 (v4 多背景增强版)"""
     os.makedirs(output_dir, exist_ok=True)
 
     solver = EITForwardSolver(config_path)
@@ -260,73 +322,95 @@ def generate_dataset(config_path="config/mesh_config.yaml",
     _generate_one.edge_ratio = edge_ratio
     _generate_one.edge_threshold = edge_threshold
     print(f"形状: {SHAPE_TYPES} (权重: {SHAPE_WEIGHTS})")
-    print(f"对比度: 3x ~ 10x (随机)")
+    print(f"对比度: 3x ~ 10x (随机; 外推测试集: 6x ~ 15x)")
+    print(f"背景电导率: {'固定 0.01' if uniform_bg else f'多档随机采样 {BACKGROUND_SIGMAS}'}")
     print(f"采样: {edge_ratio*100:.0f}%边缘/{100-edge_ratio*100:.0f}%中心 (阈值 {edge_threshold*100:.0f}cm)")
     print(f"噪声: 训练/验证随机 -40~-20dB, 测试集含固定噪声档位")
 
-    def _gen_split(name, n, start_seed, fixed_noise_db=None):
+    def _gen_split(name, n, start_seed, fixed_noise_db=None, uniform_bg=False, use_extrap_contrast=False):
         label = f"{name}" + (f" (noise={fixed_noise_db}dB)" if fixed_noise_db else "")
         print(f"生成 {label} ({n} 样本)...")
-        gen_args = [(s, fixed_noise_db) for s in range(start_seed, start_seed + n)]
+        gen_fn = _generate_one_extrap if use_extrap_contrast else _generate_one
+        # Sample background sigma for each sample
+        bg_rng = np.random.RandomState(start_seed + 999999)
+        bg_sigma_vals = []
+        for _ in range(n):
+            if uniform_bg:
+                bg_sigma_vals.append(BG_SIGMA)
+            else:
+                bg_sigma_vals.append(float(bg_rng.choice(BACKGROUND_SIGMAS, p=BACKGROUND_WEIGHTS)))
+        gen_args = [(s, fixed_noise_db, bg_sigma_vals[i])
+                     for i, s in enumerate(range(start_seed, start_seed + n))]
         if workers > 1:
             n_proc = min(workers, cpu_count(), n)
             with Pool(n_proc, initializer=_worker_init, initargs=(config_path,)) as pool:
-                results = list(tqdm(pool.starmap(_generate_one, gen_args), total=n))
+                results = list(tqdm(pool.starmap(gen_fn, gen_args), total=n))
         else:
             _worker_init(config_path)
-            results = [_generate_one(s, fixed_noise_db=fixed_noise_db)
-                       for s in tqdm(range(start_seed, start_seed + n))]
+            results = [gen_fn(s, fixed_noise_db=fixed_noise_db, bg_sigma=bg_sigma_vals[i])
+                       for i, s in enumerate(tqdm(range(start_seed, start_seed + n)))]
 
         sigmas = np.stack([r['sigma'] for r in results])
         masks = np.stack([r['mask'] for r in results])
         voltages = np.stack([r['voltage'] for r in results])
+        bg_sigmas = np.array([r['bg_sigma'] for r in results], dtype=np.float32)
         shapes = [r['shape'] for r in results]
         contrasts = [r['contrast'] for r in results]
         noise_dbs = [r['noise_db'] for r in results]
         edge_dists = [r['edge_dist'] for r in results]
-        return sigmas, masks, voltages, shapes, contrasts, noise_dbs, edge_dists
+        return sigmas, masks, voltages, bg_sigmas, shapes, contrasts, noise_dbs, edge_dists
 
     # 主数据集
-    train_s, train_m, train_v, train_shapes, _, _, _ = _gen_split("train", n_train, seed)
-    val_s, val_m, val_v, val_shapes, _, _, _ = _gen_split("val", n_val, seed + n_train + 1000)
+    train_s, train_m, train_v, train_bg, train_shapes, _, _, _ = \
+        _gen_split("train", n_train, seed, uniform_bg=uniform_bg)
+    val_s, val_m, val_v, val_bg, val_shapes, _, _, _ = \
+        _gen_split("val", n_val, seed + n_train + 1000, uniform_bg=uniform_bg)
 
     # 标准测试集 (随机噪声)
-    test_s, test_m, test_v, test_shapes, test_contrasts, test_noises, test_edges = \
-        _gen_split("test", n_test, seed + n_train + n_val + 2000)
+    test_s, test_m, test_v, test_bg, test_shapes, test_contrasts, test_noises, test_edges = \
+        _gen_split("test", n_test, seed + n_train + n_val + 2000, uniform_bg=uniform_bg)
 
     # 固定噪声测试集 (用于系统评估)
-    test_low_noise_s, test_low_noise_m, test_low_noise_v, _, _, _, _ = \
-        _gen_split("test_low_noise", n_test, seed + 100000, fixed_noise_db=-30)
-    test_high_noise_s, test_high_noise_m, test_high_noise_v, _, _, _, _ = \
-        _gen_split("test_high_noise", n_test, seed + 200000, fixed_noise_db=-15)
-    test_near_boundary_s, test_near_boundary_m, test_near_boundary_v, _, _, _, _ = \
-        _gen_split("test_near_boundary", n_test, seed + 300000, fixed_noise_db=-25)
+    test_low_noise_s, test_low_noise_m, test_low_noise_v, test_low_bg, _, _, _, _ = \
+        _gen_split("test_low_noise", n_test, seed + 100000, fixed_noise_db=-30, uniform_bg=uniform_bg)
+    test_high_noise_s, test_high_noise_m, test_high_noise_v, test_high_bg, _, _, _, _ = \
+        _gen_split("test_high_noise", n_test, seed + 200000, fixed_noise_db=-15, uniform_bg=uniform_bg)
+    test_near_boundary_s, test_near_boundary_m, test_near_boundary_v, test_near_bg, _, _, _, _ = \
+        _gen_split("test_near_boundary", n_test, seed + 300000, fixed_noise_db=-25, uniform_bg=uniform_bg)
+
+    # 对比度外推测试集 (OOD测试，对比度6x~15x)
+    test_extrap_s, test_extrap_m, test_extrap_v, test_extrap_bg, _, _, _, _ = \
+        _gen_split("test_extrap", n_test, seed + 400000, fixed_noise_db=-25,
+                   uniform_bg=uniform_bg, use_extrap_contrast=True)
 
     output_path = os.path.join(output_dir, "mixed_dataset.h5")
     print(f"保存到 {output_path} ...")
 
     with h5py.File(output_path, 'w') as f:
         # 标准 split
-        for name, sigmas, masks, voltages in [
-            ("train", train_s, train_m, train_v),
-            ("val", val_s, val_m, val_v),
-            ("test", test_s, test_m, test_v),
+        for name, sigmas, masks, voltages, bg_sigmas in [
+            ("train", train_s, train_m, train_v, train_bg),
+            ("val", val_s, val_m, val_v, val_bg),
+            ("test", test_s, test_m, test_v, test_bg),
         ]:
             grp = f.create_group(name)
             grp.create_dataset('voltages', data=voltages, compression='gzip')
             grp.create_dataset('sigmas', data=sigmas, compression='gzip')
             grp.create_dataset('masks', data=masks, compression='gzip')
+            grp.create_dataset('bg_sigmas', data=bg_sigmas, compression='gzip')
 
-        # 固定噪声测试集
-        for name, sigmas, masks, voltages in [
-            ("test_low_noise", test_low_noise_s, test_low_noise_m, test_low_noise_v),
-            ("test_high_noise", test_high_noise_s, test_high_noise_m, test_high_noise_v),
-            ("test_near_boundary", test_near_boundary_s, test_near_boundary_m, test_near_boundary_v),
+        # 固定噪声测试集 及 外推测试集
+        for name, sigmas, masks, voltages, bg_sigmas in [
+            ("test_low_noise", test_low_noise_s, test_low_noise_m, test_low_noise_v, test_low_bg),
+            ("test_high_noise", test_high_noise_s, test_high_noise_m, test_high_noise_v, test_high_bg),
+            ("test_near_boundary", test_near_boundary_s, test_near_boundary_m, test_near_boundary_v, test_near_bg),
+            ("test_extrap", test_extrap_s, test_extrap_m, test_extrap_v, test_extrap_bg),
         ]:
             grp = f.create_group(name)
             grp.create_dataset('voltages', data=voltages, compression='gzip')
             grp.create_dataset('sigmas', data=sigmas, compression='gzip')
             grp.create_dataset('masks', data=masks, compression='gzip')
+            grp.create_dataset('bg_sigmas', data=bg_sigmas, compression='gzip')
 
         meta = f.create_group('metadata')
         meta.create_dataset('mesh_nodes', data=solver.mesh.node)
@@ -340,8 +424,14 @@ def generate_dataset(config_path="config/mesh_config.yaml",
         print(f"训练集形状分布: {dict(dist)}")
         print(f"训练集形状分布 (%): { {k: f'{v/len(train_shapes)*100:.1f}%' for k, v in dist.most_common()} }")
 
+    # 打印背景 sigma 分布
+    if not uniform_bg:
+        from collections import Counter
+        bg_dist = Counter(train_bg.tolist())
+        print(f"训练集背景sigma分布: {dict(sorted(bg_dist.items()))}")
+
     print(f"完成! 训练:{n_train}, 验证:{n_val}, 测试:{n_test}")
-    print(f"附加测试: test_low_noise(-30dB), test_high_noise(-15dB), test_near_boundary(-25dB)")
+    print(f"附加测试: test_low_noise(-30dB), test_high_noise(-15dB), test_near_boundary(-25dB), test_extrap(对比度外推6x~15x)")
     return output_path
 
 
@@ -379,6 +469,8 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--edge_ratio", type=float, default=0.5)
     parser.add_argument("--edge_threshold", type=float, default=0.05)
+    parser.add_argument("--uniform_bg", action="store_true",
+                        help="Use fixed background (0.01) instead of multi-background")
     parser.add_argument("--preview", action="store_true",
                         help="只生成预览样本 (20个)")
     args = parser.parse_args()
@@ -398,4 +490,5 @@ if __name__ == "__main__":
             seed=args.seed,
             edge_ratio=args.edge_ratio,
             edge_threshold=args.edge_threshold,
+            uniform_bg=args.uniform_bg,
         )

@@ -1611,6 +1611,50 @@ def generate_datasets_page() -> str:
         </div>
     </div>
 
+    <!-- ===== 扩散模型数据集 (Diffusion Model Dataset) ===== -->
+    <div class="section-title" style="margin-top:40px;"><h2>🌀 扩散模型专用数据集 (Diffusion-Ready)</h2><div class="line"></div></div>
+    <div class="ds-card" style="border-color:rgba(34,197,94,0.3);background:rgba(10,25,15,0.85);">
+        <div class="ds-card-header" style="color:#4ade80;">硬边界 → 平滑边界 (Hard → Smooth Boundary)</div>
+        <p class="ds-card-desc">
+            原数据每样本仅 <strong style="color:#f87171;">2 个 σ 值</strong>（硬边界），扩散模型无法有效训练。
+            经过 <strong style="color:#4ade80;">1 次图拉普拉斯平滑 (strength=0.10)</strong> 后，边界产生连续过渡带（14~35 个 σ 值），
+            同时保持电压信号相关性 &gt; 0.97，物理一致性几乎不变。
+        </p>
+        <div class="ds-stats" style="margin-bottom:12px;">
+            <div class="ds-stat"><div class="ds-stat-value" style="color:#f87171;">2</div><div class="ds-stat-label">Hard: unique σ values</div></div>
+            <div class="ds-stat"><div class="ds-stat-value" style="color:#4ade80;">14~35</div><div class="ds-stat-label">Smooth: unique σ values</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">3~20%</div><div class="ds-stat-label">Transition zone</div></div>
+            <div class="ds-stat"><div class="ds-stat-value" style="color:#4ade80;">&gt;0.97</div><div class="ds-stat-label">Voltage correlation</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">6</div><div class="ds-stat-label">Shape types</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">1 iter, 0.10</div><div class="ds-stat-label">Smooth params</div></div>
+        </div>
+        <div class="ds-images">
+            <a href="/results/dataset_preview/diffusion_hard_vs_smooth_grid.png" target="_blank">
+                <img src="/results/dataset_preview/diffusion_hard_vs_smooth_grid.png"
+                     alt="Diffusion dataset: Hard vs Smooth all shapes" loading="lazy" class="ds-img" style="max-height:520px;">
+            </a>
+        </div>
+    </div>
+
+    <div class="section-title"><h2>扩散模型数据集 — 详细对比</h2><div class="line"></div></div>
+    <p style="color:#667788;font-size:13px;margin-bottom:16px;">
+        每个形状展示：σ 分布图 (Hard / Smooth / Difference) + 直方图 + 边界电压 + 电压一致性散点图。
+    </p>
+    <div class="ds-images" style="flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+        <a href="/results/dataset_preview/diffusion_circle_detail.png" target="_blank">
+            <img src="/results/dataset_preview/diffusion_circle_detail.png"
+                 alt="circle detail" loading="lazy" class="ds-img" style="max-height:280px;">
+        </a>
+        <a href="/results/dataset_preview/diffusion_ring_detail.png" target="_blank">
+            <img src="/results/dataset_preview/diffusion_ring_detail.png"
+                 alt="ring detail" loading="lazy" class="ds-img" style="max-height:280px;">
+        </a>
+        <a href="/results/dataset_preview/diffusion_summary_comparison.png" target="_blank">
+            <img src="/results/dataset_preview/diffusion_summary_comparison.png"
+                 alt="summary comparison" loading="lazy" class="ds-img" style="max-height:280px;">
+        </a>
+    </div>
+
     <div class="section-title"><h2>v3 形状类型预览</h2><div class="line"></div></div>
     <p style="color:#667788;font-size:13px;margin-bottom:16px;">
         每行展示该形状的 <strong style="color:#94a3b8;">电导率分布 (σ Map, FEM 网格)</strong> 和 <strong style="color:#94a3b8;">边界电压曲线 (208 通道)</strong>。点击图片放大查看。

@@ -41,7 +41,7 @@ class DiffusionProcess:
         sigma = diff.ddim_sample(denoiser, V, n_steps=50)    # 推理用
     """
 
-    def __init__(self, T: int = 500, schedule: str = 'cosine',
+    def __init__(self, T: int = 200, schedule: str = 'cosine',
                  beta_start: float = 1e-4, beta_end: float = 0.02):
         self.T = T
         if schedule == 'cosine':
@@ -99,24 +99,19 @@ class DiffusionProcess:
 
     @torch.no_grad()
     def ddim_sample(self, denoiser, V_cond, n_elems: int, n_steps: int = 50,
-                    eta: float = 0.0, w_phys: float = 0.1,
-                    sigma_warm: torch.Tensor = None,
-                    sigma_min: float = 0.005, sigma_max: float = 0.1):
+                    eta: float = 0.0):
         """
-        DDIM 加速采样 (v2: 支持 warm-start + x₀-prediction)
+        DDIM 加速采样 (v4: N(0,1) 标准化空间, 无 warm-start)
 
         参数:
-            denoiser: callable (sigma_t, t, v_emb) → sigma_0_hat (x₀-pred) 或 epsilon (ε-pred)
+            denoiser: callable (sigma_t, t, v_emb) → sigma_0_hat (x₀-pred)
             V_cond: (512,) or (B, 512) 电压条件
             n_elems: 网格元素数
             n_steps: DDIM 步数
             eta: 0=确定性, 1=随机
-            w_phys: 物理引导强度 (预留)
-            sigma_warm: (n_elems,) warm-start 粗估计, None = 从噪声起步
-            sigma_min/max: 输出钳位范围
 
         返回:
-            sigma_0: (n_elems,) 重建电导率
+            sigma_t: (n_elems,) 在 N(0,1) 标准化空间的重建结果
         """
         device = V_cond.device if isinstance(V_cond, torch.Tensor) else self.device
 
@@ -125,18 +120,11 @@ class DiffusionProcess:
         timesteps = list(range(0, self.T, stride))[:n_steps]
         timesteps_next = timesteps[1:] + [self.T]
 
-        # 初始化: warm-start 模式用缩小噪声, 否则标准噪声
-        if sigma_warm is not None:
-            # 残差扩散: 初始噪声尺度与训练一致 (noise_scale=0.5)
-            sigma_t = sigma_warm + 0.5 * torch.randn(n_elems, device=device)
-        else:
-            sigma_t = torch.randn(n_elems, device=device)
+        # Standard N(0,1) init - NO warm_start path
+        sigma_t = torch.randn(n_elems, device=device)
 
         for t, t_next in zip(reversed(timesteps), reversed(timesteps_next)):
             t_tensor = torch.tensor([t], device=device)
-            t_next_tensor = torch.tensor([t_next], device=device)
-
-            # 预测 σ_0 (denoiser 返回的是干净 σ 的估计, x₀-pred 模式)
             sigma_0_hat = denoiser(sigma_t.unsqueeze(0), t_tensor, V_cond)
             if sigma_0_hat.dim() >= 2:
                 sigma_0_hat = sigma_0_hat.squeeze(0)
@@ -154,21 +142,19 @@ class DiffusionProcess:
             else:
                 alpha_bar_next = self.alphas_cumprod[t_next]
                 sqrt_alpha_next = self.sqrt_alphas_cumprod[t_next]
-                # 确定性 (eta=0) 或 随机 (eta>0)
-                sigma_noise = 0.0
                 if eta > 0:
-                    sigma_noise = eta * torch.sqrt(
+                    sigma_d = eta * torch.sqrt(
                         (1 - alpha_bar_next) / (1 - alpha_bar_t + 1e-8) *
                         (1 - alpha_bar_t / (alpha_bar_next + 1e-8))
                     )
                     sigma_t = sqrt_alpha_next * sigma_0_hat + \
-                              torch.sqrt(1 - alpha_bar_next - sigma_noise**2 + 1e-8) * eps_pred + \
-                              sigma_noise * torch.randn_like(sigma_t)
+                              torch.sqrt(1 - alpha_bar_next - sigma_d**2 + 1e-8) * eps_pred + \
+                              sigma_d * torch.randn_like(sigma_t)
                 else:
                     sigma_t = sqrt_alpha_next * sigma_0_hat + \
                               torch.sqrt(1 - alpha_bar_next + 1e-8) * eps_pred
 
-        return sigma_0_hat.clamp(sigma_min, sigma_max)
+        return sigma_t  # In standardized space
 
     def to(self, device):
         for name in ['betas', 'alphas', 'alphas_cumprod', 'sqrt_alphas_cumprod',

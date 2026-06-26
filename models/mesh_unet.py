@@ -123,11 +123,12 @@ class MeshUNet(nn.Module):
         self.dec0 = nn.ModuleList([MeshConvBlock(h, h, dropout=dropout),
                                    MeshConvBlock(h, h//2, dropout=dropout)])
 
-        # ---- Output head (x₀-prediction: predict clean σ) ----
+        # ---- Output head (x₀-prediction: predict clean σ in N(0,1) space) ----
+        # Tanh constrains output to [-1, 1], covering core ±1σ region
         self.out_head = nn.Sequential(
             nn.Linear(h//2, h//4), nn.GELU(), nn.Dropout(dropout * 0.5),
             nn.Linear(h//4, 1),
-            nn.Sigmoid(),  # 约束输出在 [0, 1], 由调用方 scale 到 [σ_min, σ_max]
+            nn.Tanh(),
         )
 
         self.hierarchy = None
