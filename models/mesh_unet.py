@@ -124,11 +124,10 @@ class MeshUNet(nn.Module):
                                    MeshConvBlock(h, h//2, dropout=dropout)])
 
         # ---- Output head (x₀-prediction: predict clean σ in N(0,1) space) ----
-        # Tanh constrains output to [-1, 1], covering core ±1σ region
+        # RankGauss ensures data is N(0,1); Linear output allows full ±3σ range
         self.out_head = nn.Sequential(
             nn.Linear(h//2, h//4), nn.GELU(), nn.Dropout(dropout * 0.5),
             nn.Linear(h//4, 1),
-            nn.Tanh(),
         )
 
         self.hierarchy = None

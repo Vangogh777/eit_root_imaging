@@ -125,19 +125,53 @@ class DiffEIT(nn.Module):
             dropout=dropout,
         )
 
+        # J^T·V bias: 直接从灵敏度反投影学习空间偏置, 添加到去噪器输出
+        self.sens_bias = nn.Sequential(
+            nn.Linear(2, 16), nn.GELU(),
+            nn.Linear(16, 1),
+        )
+        self.sens_bias_scale = 0.3  # moderate spatial prior
+
         # Jacobian 缓冲 (在 setup_mesh 时注册)
         self.register_buffer('J_T', torch.empty(0), persistent=False)
         self.register_buffer('J_energy', torch.empty(0), persistent=False)
         self.register_buffer('pos_encoding', torch.empty(0), persistent=False)
 
-    def configure_sigma_stats(self, sigma_min: float, sigma_max: float,
-                              sigma_mean: float, sigma_std: float):
-        """设置从训练数据推断的归一化参数."""
-        self.sigma_min = sigma_min
-        self.sigma_max = sigma_max
-        self.sigma_range = sigma_max - sigma_min
-        self.sigma_mean = sigma_mean
-        self.sigma_std = sigma_std
+        # RankGauss lookup tables (built from training data, ~10000 quantiles)
+        # MUST be persistent=True so they are saved in checkpoints
+        self.register_buffer('rg_vals', torch.empty(0), persistent=True)     # sorted physical σ
+        self.register_buffer('rg_gauss', torch.empty(0), persistent=True)    # N(0,1) values
+        self.register_buffer('rg_gauss_rev', torch.empty(0), persistent=True) # N(0,1) sorted
+        self.register_buffer('rg_vals_rev', torch.empty(0), persistent=True)  # physical sorted by gauss
+
+    def configure_rankgauss(self, rg_vals: np.ndarray, rg_gauss: np.ndarray):
+        """RankGauss lookup: 物理 σ → N(0,1), 保证扩散在真正正态分布上运行."""
+        self.rg_vals = torch.from_numpy(rg_vals).float()
+        self.rg_gauss = torch.from_numpy(rg_gauss).float()
+        # Reverse lookup: sorted N(0,1) values → physical
+        sort_idx = np.argsort(rg_gauss)
+        self.rg_gauss_rev = torch.from_numpy(rg_gauss[sort_idx]).float()
+        self.rg_vals_rev = torch.from_numpy(rg_vals[sort_idx]).float()
+        # Also update sigma range for clamping
+        self.sigma_min = float(rg_vals[0])
+        self.sigma_max = float(rg_vals[-1])
+        self.sigma_range = self.sigma_max - self.sigma_min
+        self.sigma_mean = 0.0  # not used with RankGauss
+        self.sigma_std = 1.0   # not used with RankGauss
+
+    def _phys_to_std(self, sigma_phys):
+        """RankGauss: 物理 σ → 分位数 → N(0,1)"""
+        flat = sigma_phys.flatten()
+        idx = torch.searchsorted(self.rg_vals.to(sigma_phys.device), flat)
+        idx = idx.clamp(0, len(self.rg_gauss) - 1)
+        return self.rg_gauss.to(sigma_phys.device)[idx].reshape_as(sigma_phys)
+
+    def _std_to_phys(self, sigma_std):
+        """逆 RankGauss: N(0,1) → 分位数 → 物理 σ"""
+        flat = sigma_std.flatten()
+        idx = torch.searchsorted(self.rg_gauss_rev.to(sigma_std.device), flat)
+        idx = idx.clamp(0, len(self.rg_vals_rev) - 1)
+        return self.rg_vals_rev.to(sigma_std.device)[idx].reshape_as(sigma_std)
 
     def setup_mesh(self, centers: np.ndarray, elements: np.ndarray,
                    jacobian: np.ndarray, hierarchy: list,
@@ -229,24 +263,22 @@ class DiffEIT(nn.Module):
             sigma_0_std:      (B, n_elems, 1) — 真实的干净 σ (N(0,1) 空间)
         """
         B = sigma_0.shape[0]
-        device = sigma_0.device
 
-        # Step 1: 归一化到 [0, 1]
-        sigma_0_norm = ((sigma_0 - self.sigma_min) / self.sigma_range).clamp(0, 1)
+        # RankGauss: 物理 σ → N(0,1) (forced normal distribution)
+        sigma_0_std = self._phys_to_std(sigma_0)
 
-        # Step 2: 标准化到 N(0,1)
-        sigma_0_std = (sigma_0_norm - self.sigma_mean) / self.sigma_std
-
-        # Step 3: 标准 DDPM 前向加噪 (no warm-start)
+        # Standard DDPM forward in N(0,1) space
         sigma_t_std, noise = self.diffusion.forward_diffuse(sigma_0_std, t)
 
-        # Step 4: 条件编码
+        # Step 4: 条件编码 (CFG: 训练时15%概率丢弃电压条件)
         t_emb = self.time_embed(t)
-        v_emb = self.voltage_encoder(V) if V is not None else torch.zeros(
-            B, self.voltage_dim, device=device)
-
-        # 灵敏度特征
-        extra_feat = self._compute_sensitivity_features(V)
+        if V is not None and self.training and torch.rand(1).item() < 0.20:
+            v_emb = torch.zeros(B, self.voltage_dim, device=sigma_0.device)
+            extra_feat = None
+        else:
+            v_emb = self.voltage_encoder(V) if V is not None else torch.zeros(
+                B, self.voltage_dim, device=sigma_0.device)
+            extra_feat = self._compute_sensitivity_features(V)
 
         # Step 5: 在标准化空间去噪
         sigma_0_pred_std = self.denoiser(
@@ -256,20 +288,19 @@ class DiffEIT(nn.Module):
             extra_feat=extra_feat,
         )  # (B, n_elems, 1) — 在 N(0,1) 空间 (Linear 输出)
 
+        # J^T·V spatial bias: 灵敏度反投影直接告诉模型"哪里可能有异常"
+        if extra_feat is not None:
+            bias = self.sens_bias(extra_feat)  # (B, N, 2)→(B, N, 1)
+            sigma_0_pred_std = sigma_0_pred_std + self.sens_bias_scale * bias
+
         return sigma_0_pred_std, sigma_0_std.unsqueeze(-1)
 
     @torch.no_grad()
-    def sample(self, V, n_steps=50, n_samples=1):
+    def sample(self, V, n_steps=50, n_samples=1, cfg_scale=2.0):
         """
         推理: N(0,1) 噪声 → 标准化 DDIM → 反变换到物理空间
 
-        参数:
-            V: (208,) 或 (6, 208) 边界电压
-            n_steps: DDIM 步数
-            n_samples: 采样次数 (用于不确定性估计)
-
-        返回:
-            sigma: (n_elems,) 或 (n_samples, n_elems)
+        cfg_scale: classifier-free guidance scale (>1=更强的条件控制)
         """
         if V.dim() == 2:
             V_enc = V.unsqueeze(0)  # (1, n_freq, n_meas)
@@ -279,12 +310,13 @@ class DiffEIT(nn.Module):
             V_enc = V
 
         v_emb = self.voltage_encoder(V_enc)
+        v_emb_uncond = torch.zeros_like(v_emb)  # unconditional = zero
 
         V_sens = V_enc[:, 0, :] if V_enc.dim() == 3 else V_enc
         extra_feat = self._compute_sensitivity_features(V_sens)
+        extra_feat_uncond = torch.zeros_like(extra_feat) if extra_feat is not None else None
 
-        def denoise_fn(sigma_t_std, t_tensor, v_emb_in):
-            """Standardized space → standardized space"""
+        def _denoise(sigma_t_std, t_tensor, v_emb_in, ef_in):
             t_emb = self.time_embed(t_tensor)
             if sigma_t_std.dim() == 1:
                 sigma_t_std = sigma_t_std.unsqueeze(0).unsqueeze(-1)
@@ -293,8 +325,23 @@ class DiffEIT(nn.Module):
             if v_emb_in.dim() == 1:
                 v_emb_in = v_emb_in.unsqueeze(0)
             B_in = sigma_t_std.shape[0]
-            ef = extra_feat.expand(B_in, -1, -1) if extra_feat is not None and extra_feat.shape[0] != B_in else extra_feat
-            return self.denoiser(sigma_t_std, t_emb, v_emb_in, extra_feat=ef).squeeze(0).squeeze(-1)
+            if ef_in is not None and ef_in.shape[0] != B_in:
+                ef_in = ef_in.expand(B_in, -1, -1)
+            pred = self.denoiser(sigma_t_std, t_emb, v_emb_in, extra_feat=ef_in).squeeze(0).squeeze(-1)
+            # J^T·V bias
+            if ef_in is not None:
+                bias = self.sens_bias(ef_in).squeeze(-1)  # (B, N)
+                if bias.dim() == 1: bias = bias
+                pred = pred + self.sens_bias_scale * bias
+            return pred
+
+        def denoise_fn(sigma_t_std, t_tensor, v_emb_in):
+            if cfg_scale <= 1.0:
+                return _denoise(sigma_t_std, t_tensor, v_emb_in, extra_feat)
+            # CFG: cond + scale * (cond - uncond)
+            pred_cond = _denoise(sigma_t_std, t_tensor, v_emb, extra_feat)
+            pred_uncond = _denoise(sigma_t_std, t_tensor, v_emb_uncond, extra_feat_uncond)
+            return pred_uncond + cfg_scale * (pred_cond - pred_uncond)
 
         samples = []
         for _ in range(n_samples):
@@ -302,10 +349,7 @@ class DiffEIT(nn.Module):
                 denoise_fn, v_emb.squeeze(0) if v_emb.dim() > 1 else v_emb,
                 self.n_elems, n_steps=n_steps,
             )
-            # 反变换: N(0,1) → [0,1] → 物理空间
-            sigma_norm = sigma_std * self.sigma_std + self.sigma_mean
-            sigma_norm = sigma_norm.clamp(0, 1)
-            sigma_phys = sigma_norm * self.sigma_range + self.sigma_min
+            sigma_phys = self._std_to_phys(sigma_std)
             sigma_phys = sigma_phys.clamp(self.sigma_min, self.sigma_max)
             samples.append(sigma_phys)
 

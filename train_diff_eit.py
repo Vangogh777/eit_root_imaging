@@ -66,7 +66,7 @@ def train():
     parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--lr', type=float, default=2e-4)
     parser.add_argument('--hidden_dim', type=int, default=384)
-    parser.add_argument('--T', type=int, default=200)
+    parser.add_argument('--T', type=int, default=50)
     parser.add_argument('--schedule', choices=['linear', 'cosine'], default='cosine')
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--workers', type=int, default=8)
@@ -126,13 +126,17 @@ def train():
     for batch in train_loader:
         all_sigmas.append(batch['sigmas'].numpy().ravel())
     all_sigmas = np.concatenate(all_sigmas)
-    sigma_min = float(np.percentile(all_sigmas, 0.1))
-    sigma_max = float(np.percentile(all_sigmas, 99.9))
-    sigma_norm = (all_sigmas - sigma_min) / (sigma_max - sigma_min)
-    sigma_mean = float(np.mean(sigma_norm))
-    sigma_std = max(float(np.std(sigma_norm)), 0.01)  # prevent division by near-zero
-    print(f'  sigma_min={sigma_min:.4f}, sigma_max={sigma_max:.4f}')
-    print(f'  sigma_mean={sigma_mean:.4f}, sigma_std={sigma_std:.4f}')
+    print(f'  sigma: [{all_sigmas.min():.4f}, {all_sigmas.max():.4f}], {len(all_sigmas):,} values')
+
+    # RankGauss: build lookup table forcing data to N(0,1)
+    from scipy.special import erfinv
+    n_quantiles = min(10000, len(all_sigmas))
+    sorted_vals = np.sort(np.random.choice(all_sigmas, size=n_quantiles, replace=False))
+    quantiles = np.linspace(0, 1, n_quantiles)
+    quantiles_clipped = np.clip(quantiles, 1e-7, 1 - 1e-7)
+    gauss_vals = np.sqrt(2.0) * erfinv(2.0 * quantiles_clipped - 1.0)
+    print(f'  RankGauss: {n_quantiles} quantiles, gauss range [{gauss_vals[0]:.2f}, {gauss_vals[-1]:.2f}]')
+    print(f'    → data is now truly N(0,1) in diffusion space')
 
     # ========== 4. 创建模型 ==========
     print('\n[4/6] 创建模型 (v4: standardized DDPM + physics consistency)...')
@@ -143,7 +147,7 @@ def train():
         T=args.T,
         schedule=args.schedule,
     )
-    model.configure_sigma_stats(sigma_min, sigma_max, sigma_mean, sigma_std)
+    model.configure_rankgauss(sorted_vals, gauss_vals)
     model.setup_mesh(centers, elements, jacobian, hierarchy, sigma_ref=0.01)
     model.to(device)
 
@@ -189,7 +193,7 @@ def train():
         print(f'  从 epoch {start_epoch} 恢复')
 
     total_epochs = args.epochs
-    sigma_ref = sigma_min  # use inferred background as physics reference point
+    sigma_ref = float(sorted_vals[0])  # background conductivity for physics reference
 
     print(f'\n[5/6] 开始训练 ({total_epochs} epochs)...')
     print(f'  x₀-prediction 目标 (N(0,1) 空间), {args.schedule} 噪声调度')
@@ -210,13 +214,19 @@ def train():
             with torch.amp.autocast('cuda', enabled=device.type == 'cuda'):
                 sigma_0_pred, sigma_0_true = model(sigma_0, t, V)
 
-                # Simple MSE in standardized space (smooth data has continuous distribution)
+                # Simple MSE in standardized space (RankGauss: true N(0,1))
                 loss_mse = simple_mse_loss(sigma_0_pred, sigma_0_true)
 
-                # Physics consistency
-                loss_phys = physics_consistency_loss(sigma_0_pred, model.sigma_mean, model.sigma_std,
-                                                      model.sigma_min, model.sigma_range,
-                                                      V, model.J_T, sigma_ref)
+                # Physics consistency (RankGauss inverse → physical → Jacobian)
+                sigma_pred_phys = model._std_to_phys(sigma_0_pred.squeeze(-1))
+                delta_sigma = sigma_pred_phys - sigma_ref
+                V_pred = delta_sigma @ model.J_T
+                if V.dim() == 3:
+                    V_mean = V.mean(dim=1)
+                else:
+                    V_mean = V
+                v_norm = V_mean.norm(dim=1, keepdim=True).clamp(min=1e-8)
+                loss_phys = F.mse_loss(V_pred / v_norm, V_mean / v_norm)
 
                 loss = loss_mse + 0.3 * loss_phys
 
@@ -256,9 +266,32 @@ def train():
         val_loss /= max(len(val_loader), 1)
         lr_now = optimizer.param_groups[0]['lr']
 
+        # val_RE monitoring every 10 epochs (compute BEFORE logging)
+        val_re = None
+        if epoch % 10 == 0 and epoch > 0:
+            model.eval()
+            val_re_sum = 0.0
+            n_val_re = min(5, len(val_loader))
+            with torch.no_grad():
+                for i, batch in enumerate(val_loader):
+                    if i >= n_val_re:
+                        break
+                    V_val = batch['voltages'][0].to(device)
+                    sigma_gt = batch['sigmas'][0].to(device)
+                    sigma_pred = model.sample(V_val, n_steps=50, cfg_scale=2.0)
+                    re = torch.norm(sigma_pred - sigma_gt) / (torch.norm(sigma_gt) + 1e-8)
+                    val_re_sum += re.item()
+            val_re = val_re_sum / n_val_re
+            recorder.log_event('val_RE', epoch=epoch, val_RE=val_re)
+            print(f'  Val RE (DDIM 50steps): {val_re:.4f}')
+            model.train()
+
         print(f'  Epoch {epoch:3d} | Loss: {avg_loss:.6f} (MSE: {avg_mse:.6f} Phys: {avg_phys:.6f}) | Val: {val_loss:.6f} | LR: {lr_now:.2e}')
-        recorder.log_epoch(phase='diffusion', epoch=epoch, loss=avg_loss,
-                          val_loss=val_loss, lr=lr_now)
+        epoch_kwargs = dict(phase='diffusion', epoch=epoch, loss=avg_loss,
+                           val_loss=val_loss, lr=lr_now)
+        if val_re is not None:
+            epoch_kwargs['re'] = val_re
+        recorder.log_epoch(**epoch_kwargs)
 
         # 保存最佳
         if val_loss < best_val_loss:
@@ -300,23 +333,6 @@ def train():
             }, f'{ckpt_dir}/epoch{epoch}.pt')
             recorder.log_event("checkpoint_saved", epoch=epoch)
 
-        # val_RE monitoring every 10 epochs
-        if epoch % 10 == 0 and epoch > 0:
-            model.eval()
-            val_re_sum = 0.0
-            n_val_re = min(5, len(val_loader))
-            with torch.no_grad():
-                for i, batch in enumerate(val_loader):
-                    if i >= n_val_re:
-                        break
-                    V_val = batch['voltages'][0].to(device)  # single sample
-                    sigma_gt = batch['sigmas'][0].to(device)
-                    sigma_pred = model.sample(V_val, n_steps=50)
-                    re = torch.norm(sigma_pred - sigma_gt) / (torch.norm(sigma_gt) + 1e-8)
-                    val_re_sum += re.item()
-            val_re = val_re_sum / n_val_re
-            recorder.log_event('val_RE', epoch=epoch, val_RE=val_re)
-            print(f'  Val RE (DDIM 20steps): {val_re:.4f}')
             model.train()
 
     # 最终保存
