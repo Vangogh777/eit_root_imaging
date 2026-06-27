@@ -40,7 +40,9 @@
       "Bash(kill -9 1615308 1666991 1666992 1666993 1666994)",
       "Bash(awk '/Epoch 0[0-9][0-9]\\\\/100 \\\\| train_loss/ {print}' /home/ubuntu/EIT/eit_root_imaging/residual_training.log)",
       "Bash(echo \"脚本在后台运行，PID: $!\")",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "Bash(tmux ls *)",
+      "Bash(kill 2083482 2083483 2083484 2083485)"
     ]
   }
 }
