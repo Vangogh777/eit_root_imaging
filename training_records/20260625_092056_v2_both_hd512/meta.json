@@ -1,0 +1,21 @@
+{
+  "hidden_dim": 512,
+  "gnn_hidden": 512,
+  "gnn_layers": 4,
+  "batch_size": 32,
+  "mode": "both",
+  "epochs_sup": 80,
+  "epochs_unsup": 200,
+  "model_params": 8659553,
+  "lr": 0.0001,
+  "use_model_jacobian": false,
+  "use_gat": false,
+  "n_heads": 4,
+  "mcl_mode": "full_fem",
+  "use_linear_output": true,
+  "loss": "combined_v3",
+  "run_id": "20260625_092056_v2_both_hd512",
+  "name": "v2_both_hd512",
+  "start_time": "2026-06-25T09:20:56.037499",
+  "status": "running"
+}

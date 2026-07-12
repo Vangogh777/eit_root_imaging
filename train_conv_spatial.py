@@ -110,10 +110,14 @@ def train():
                         help="关闭 GATv2，使用 SimpleGNN（默认开启）")
     parser.add_argument("--use_gat", action="store_true",
                         help="使用 GATv2 注意力（显存占用大，默认关闭）")
+    parser.add_argument("--use_pamp", action="store_true",
+                        help="使用 PAMP (Physics-Aware Message Passing) 替代 SimpleGNN/GATv2")
     parser.add_argument("--n_heads", type=int, default=4,
                         help="GATv2 attention heads 数量")
     parser.add_argument("--mode", choices=["supervised", "unsupervised", "both"],
                         default="both", help="训练模式")
+    parser.add_argument("--data", type=str, default=None,
+                        help="HDF5数据集路径 (默认: data/generated/mixed_dataset.h5)")
     parser.add_argument("--generate", action="store_true", help="强制重新生成数据")
     parser.add_argument("--resume", type=str, default=None, help="恢复 checkpoint")
     parser.add_argument("--workers", type=int, default=0, help="数据生成并行数")
@@ -129,6 +133,8 @@ def train():
     parser.add_argument("--mcl_mode", choices=["jacobian", "full_fem"],
                         default="full_fem",
                         help="测量一致性损失模式: jacobian(线性近似,省显存) / full_fem(精确FEM, 默认)")
+    parser.add_argument("--jacobian", type=str, default=None,
+                        help="Jacobian路径 (默认: data/generated/jacobian.npy，如不存在则跳过)")
     # ── 无监督阶段专用参数 ──
     parser.add_argument("--unsup_lr", type=float, default=1e-5,
                         help="无监督精调学习率（默认1e-5，比预训练小10倍）")
@@ -150,10 +156,17 @@ def train():
 
     # ============ 1. 数据 ============
     centers, elements, n_elems, solver = get_mesh_data(args.mesh_config)
-    print(f"网格: {n_elems} 单元")
 
     # 检查/生成数据
-    h5_path = "data/generated/mixed_dataset.h5"
+    h5_path = args.data if args.data else "data/generated/mixed_dataset.h5"
+
+    # 从数据集路径提取形状名 (如 circle_dataset_11466.h5 → circle)
+    import re
+    _shape_match = re.search(r'(\w+)_dataset', os.path.basename(h5_path))
+    _shape_name = _shape_match.group(1) if _shape_match else 'mixed'
+
+    print(f"网格: {n_elems} 单元  |  数据集: {h5_path}  |  形状: {_shape_name}")
+
     if args.generate or not os.path.exists(h5_path):
         print("生成多样化数据集...")
         from data.generate_mixed_dataset import generate_dataset
@@ -176,7 +189,7 @@ def train():
     class BalancedBatchSampler(torch.utils.data.Sampler):
         """
         确保每个 batch 中边缘样本比例 ≈ args.edge_ratio。
-        边缘判定: 样本中根区域重心距中心 > edge_threshold。
+        边缘判定: 样本中内含物区域重心距中心 > edge_threshold。
         """
         def __init__(self, dataset, batch_size, edge_ratio=0.5, edge_threshold=0.05):
             self.batch_size = batch_size
@@ -191,17 +204,17 @@ def train():
             # 从 MemoryEITDataset 直接获取内存中的 sigmas
             all_sigmas = dataset.sigmas  # (n_samples, n_elems), already in memory
 
-            root_mask = all_sigmas > 0.015  # (n_samples, n_elems)
-            n_root = root_mask.sum(axis=1)  # (n_samples,)
+            anomaly_mask = all_sigmas > 0.015  # (n_samples, n_elems)
+            n_anomaly = anomaly_mask.sum(axis=1)  # (n_samples,)
 
-            # 向量化计算质心: 每个样本取根区域中心坐标的平均值
+            # 向量化计算质心: 每个样本取内含物区域中心坐标的平均值
             # centers_np: (n_elems, 2) -> (1, n_elems, 2)
-            # root_mask: (n_samples, n_elems) -> (n_samples, n_elems, 1)
+            # anomaly_mask: (n_samples, n_elems) -> (n_samples, n_elems, 1)
             # sum over elems gives (n_samples, 2)
-            centroid_x = (centers_np[:, 0] * root_mask).sum(axis=1) / np.maximum(n_root, 1)
-            centroid_y = (centers_np[:, 1] * root_mask).sum(axis=1) / np.maximum(n_root, 1)
+            centroid_x = (centers_np[:, 0] * anomaly_mask).sum(axis=1) / np.maximum(n_anomaly, 1)
+            centroid_y = (centers_np[:, 1] * anomaly_mask).sum(axis=1) / np.maximum(n_anomaly, 1)
             dist = np.sqrt(centroid_x**2 + centroid_y**2)
-            self.labels = np.where(n_root > 0, (dist > edge_threshold).astype(np.int64), 0)
+            self.labels = np.where(n_anomaly > 0, (dist > edge_threshold).astype(np.int64), 0)
 
             self.edge_idx = np.where(self.labels == 1)[0]
             self.center_idx = np.where(self.labels == 0)[0]
@@ -252,11 +265,18 @@ def train():
         gnn_layers=args.gnn_layers,
         use_gat=use_gat_flag,
         n_heads=args.n_heads,
+        use_pamp=args.use_pamp,
     )
     # v3: Jacobian 校正默认关闭（J 病态时有害）
-    jac_path = "data/generated/jacobian.npy"
+    # PAMP 需要 Jacobian 来计算物理边特征
+    jac_path = args.jacobian if args.jacobian else "data/generated/jacobian.npy"
     model_jacobian = None
-    if args.use_model_jacobian and os.path.exists(jac_path):
+    if args.use_pamp and os.path.exists(jac_path):
+        model_jacobian = np.load(jac_path)
+        if model_jacobian.ndim == 3:
+            model_jacobian = model_jacobian[0]
+        print(f"PAMP 物理边特征: Jacobian 已加载 ({model_jacobian.shape})")
+    elif args.use_model_jacobian and os.path.exists(jac_path):
         model_jacobian = np.load(jac_path)
         if model_jacobian.ndim == 3:
             model_jacobian = model_jacobian[0]
@@ -269,7 +289,7 @@ def train():
 
     # 训练记录器
     recorder = TrainingRecorder(
-        name=f"v2_{args.mode}_hd{args.hidden_dim}",
+        name=f"v2_{_shape_name}_hd{args.hidden_dim}",
     )
     n_params = sum(p.numel() for p in model.parameters())
     recorder.save_meta({
@@ -285,7 +305,10 @@ def train():
         "use_model_jacobian": args.use_model_jacobian,
         "use_gat": use_gat_flag,
         "n_heads": args.n_heads,
+        "use_pamp": args.use_pamp,
         "mcl_mode": args.mcl_mode,
+        "dataset": h5_path,
+        "shape": _shape_name,
         "use_linear_output": True,
         "loss": "combined_v3",
     })
@@ -482,7 +505,7 @@ def train():
 
         # 预计算 Jacobian（可选）
         jacobian = None
-        jac_path = "data/generated/jacobian.npy"
+        jac_path = args.jacobian if args.jacobian else "data/generated/jacobian.npy"
         if os.path.exists(jac_path):
             jacobian = torch.from_numpy(np.load(jac_path)).float().to(device)
             print(f"加载 Jacobian: {jacobian.shape}")

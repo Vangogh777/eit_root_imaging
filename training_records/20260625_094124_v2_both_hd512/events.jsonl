@@ -1,0 +1,21 @@
+{"event": "best_supervised_saved", "time": "2026-06-25T09:43:42.142108", "re": 0.45065945386886597, "source": "raw", "epoch": 1}
+{"event": "best_supervised_saved", "time": "2026-06-25T09:45:58.210833", "re": 0.41462862491607666, "source": "ema", "epoch": 2}
+{"event": "best_supervised_saved", "time": "2026-06-25T09:48:14.581081", "re": 0.3911510407924652, "source": "ema", "epoch": 3}
+{"event": "best_supervised_saved", "time": "2026-06-25T09:50:30.820802", "re": 0.38044485449790955, "source": "ema", "epoch": 4}
+{"event": "best_supervised_saved", "time": "2026-06-25T09:52:46.812671", "re": 0.37395185232162476, "source": "ema", "epoch": 5}
+{"event": "best_supervised_saved", "time": "2026-06-25T09:55:03.199298", "re": 0.3677057921886444, "source": "ema", "epoch": 6}
+{"event": "best_supervised_saved", "time": "2026-06-25T09:57:19.462953", "re": 0.3616020977497101, "source": "ema", "epoch": 7}
+{"event": "best_supervised_saved", "time": "2026-06-25T09:59:35.762999", "re": 0.35627952218055725, "source": "ema", "epoch": 8}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:01:51.714295", "re": 0.3499722182750702, "source": "ema", "epoch": 9}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:04:08.005924", "re": 0.3465055525302887, "source": "ema", "epoch": 10}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:06:24.235080", "re": 0.34357360005378723, "source": "ema", "epoch": 11}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:08:39.992722", "re": 0.3402705788612366, "source": "ema", "epoch": 12}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:10:56.083791", "re": 0.337744802236557, "source": "ema", "epoch": 13}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:13:12.518892", "re": 0.3343924283981323, "source": "ema", "epoch": 14}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:15:28.660274", "re": 0.3336735665798187, "source": "ema", "epoch": 15}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:17:44.706691", "re": 0.3329690992832184, "source": "ema", "epoch": 16}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:20:00.812211", "re": 0.3308563828468323, "source": "ema", "epoch": 17}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:26:48.773839", "re": 0.3290916383266449, "source": "ema", "epoch": 20}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:35:51.898618", "re": 0.32874882221221924, "source": "ema", "epoch": 24}
+{"event": "best_supervised_saved", "time": "2026-06-25T10:38:08.207136", "re": 0.32778939604759216, "source": "ema", "epoch": 25}
+{"event": "best_unsupervised_saved", "time": "2026-06-25T12:45:07.558961", "re": 0.7884292602539062, "epoch": 1}

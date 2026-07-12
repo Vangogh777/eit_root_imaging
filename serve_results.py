@@ -88,10 +88,12 @@ def scan_results():
     """扫描 results/ 目录，返回所有结果组（含修改时间）"""
     groups = []
 
-    # 1. 子目录
+    # 1. 子目录（跳过数据集预览目录，它们只在 /datasets/ 页面展示）
+    _SKIP_DIRS = {'dataset_preview', 'dataset_preview_v3', 'dataset_preview_v4',
+                  'shapes_preview', 'thumbs'}
     for d in sorted(os.listdir(RESULTS_DIR)):
         dpath = os.path.join(RESULTS_DIR, d)
-        if not os.path.isdir(dpath) or d.startswith('.'):
+        if not os.path.isdir(dpath) or d.startswith('.') or d in _SKIP_DIRS:
             continue
         images = []
         for fname in sorted(os.listdir(dpath)):
@@ -1504,7 +1506,28 @@ def generate_datasets_page() -> str:
                 </a>
             </div>
         </div>'''
-    
+
+    # v4 高精度分形状数据集卡片 (11466 元素)
+    v4_shapes = [
+        ("圆形 (Circle)", "circle", "单圆内含物，随机半径 0.8~3.0cm，位置 50/50 边缘/中心平衡"),
+        ("椭圆 (Ellipse)", "ellipse", "椭圆内含物，随机长轴 1.5~4.0cm / 短轴 0.8~2.0cm + 随机旋转"),
+        ("双圆 (Double Circle)", "double_circle", "两个不重叠的随机圆，最小半径 1.2cm，间距 ≥ 0.2cm"),
+        ("正方形 (Square)", "square", "正方形内含物，随机边长 2.0~7.0cm + 随机旋转 0~45°"),
+        ("近边界 (Near-Boundary)", "near_boundary", "内含物强制靠近桶壁 (&lt; 2.5cm)，圆或椭圆随机，EIT 最难场景"),
+    ]
+    v4_cards = ""
+    for name, key, desc in v4_shapes:
+        v4_cards += f'''
+    <div class="ds-card">
+        <div class="ds-card-header">{name}</div>
+        <p class="ds-card-desc">{desc}</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v4/{key}_preview.png" target="_blank">
+                <img src="/results/dataset_preview_v4/{key}_preview.png" alt="v4 {key}" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>'''
+
     html = f'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1702,6 +1725,50 @@ def generate_datasets_page() -> str:
         <div class="ds-images">
             <a href="/results/dataset_preview_v3/near_boundary_preview.png" target="_blank">
                 <img src="/results/dataset_preview_v3/near_boundary_preview.png" alt="v3 near_boundary" loading="lazy" class="ds-img">
+            </a>
+        </div>
+    </div>
+
+    <!-- ===== v4 高精度分形状数据集 (11466 元素) ===== -->
+    <div class="section-title" style="margin-top:40px;"><h2>🔬 v4 高精度分形状数据集 (11466 元素, 独立训练用)</h2><div class="line"></div></div>
+    <div class="ds-card" style="border-color:rgba(96,165,250,0.3);background:rgba(15,20,35,0.85);">
+        <div class="ds-card-header" style="color:#60a5fa;">Per-Shape Fine-Mesh Dataset v4</div>
+        <p class="ds-card-desc">
+            每种形状 <strong style="color:#60a5fa;">独立 HDF5 文件</strong>，用于分形状训练和评估。
+            11466 单元精细网格 (mesh_resolution=0.0025)，统一背景 0.01 S/m，对比度 3x~10x 随机，
+            噪声 -40~-20 dB 随机，50/50 边缘/中心平衡采样。
+        </p>
+        <div class="ds-stats" style="margin-bottom:12px;">
+            <div class="ds-stat"><div class="ds-stat-value">20,000</div><div class="ds-stat-label">训练样本/shape</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">500</div><div class="ds-stat-label">验证样本/shape</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">500</div><div class="ds-stat-label">测试样本/shape</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">11466</div><div class="ds-stat-label">FEM 单元</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">5</div><div class="ds-stat-label">形状类型</div></div>
+            <div class="ds-stat"><div class="ds-stat-value">5x (固定)</div><div class="ds-stat-label">对比度</div></div>
+        </div>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v4/all_shapes_summary.png" target="_blank">
+                <img src="/results/dataset_preview_v4/all_shapes_summary.png"
+                     alt="v4 all shapes summary" loading="lazy" class="ds-img" style="max-height:480px;">
+            </a>
+        </div>
+    </div>
+
+    <div class="section-title"><h2>v4 形状类型预览 (5 samples/shape)</h2><div class="line"></div></div>
+    <p style="color:#667788;font-size:13px;margin-bottom:16px;">
+        每种形状 5 个样本，<strong style="color:#fbbf24;">上排: σ 电导率分布</strong>，
+        <strong style="color:#60a5fa;">下排: 边界电压曲线 (208 通道)</strong>。
+        固定对比度 <strong>5x</strong> (0.01/0.05 S/m)，11466 单元精细网格，噪声 -40~-20dB 随机。
+    </p>
+    {v4_cards}
+
+    <div class="ds-card">
+        <div class="ds-card-header">⚡ 6 形状电压对比</div>
+        <p class="ds-card-desc">每种形状取 1 个样本，叠加显示前 2 频率的边界电压曲线。形状不同，电压模式明显不同。</p>
+        <div class="ds-images">
+            <a href="/results/dataset_preview_v4/all_voltages.png" target="_blank">
+                <img src="/results/dataset_preview_v4/all_voltages.png"
+                     alt="v4 all voltages" loading="lazy" class="ds-img" style="max-height:400px;">
             </a>
         </div>
     </div>

@@ -84,7 +84,7 @@ class EITForwardSolver:
         self._forward_op = EITForward(self.mesh, self.protocol)
 
         # --- 4. 缓存均匀场电导率的参考电压（用于差分EIT） ---
-        self.sigma_uniform = np.full(self.n_elems, self.gt_cfg['conductivity_soil'])
+        self.sigma_uniform = np.full(self.n_elems, self.gt_cfg.get('conductivity_background', self.gt_cfg.get('conductivity_soil', 0.01)))
         # solve_eit 返回 (n_measurements,) 的边界电压
         self.V_uniform = self._forward_op.solve_eit(self.sigma_uniform)
 

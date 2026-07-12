@@ -1,0 +1,54 @@
+# ══════════════════════════════════════════
+# 训练配置 — 11466 单元精细网格版本
+# ══════════════════════════════════════════
+
+model:
+  name: "sf_sblc_v2"
+  input_dim: 208
+  n_frequencies: 6
+  n_elems: 11466               # 精细网格 11466 单元 (mesh_resolution=0.0025)
+  hidden_dim: 512
+  n_res_blocks: 8
+  dropout: 0.1
+  use_attention: true
+
+training:
+  batch_size: 32
+  epochs: 300
+  learning_rate: 3e-4
+  lr_scheduler: "cosine"
+  weight_decay: 1e-5
+  grad_clip: 1.0
+  warmup_epochs: 10
+
+  loss_weights:
+    measurement_consistency: 1.0
+    tv_regularization: 0.05
+    frequency_cross: 0.1
+    smoothness: 0.02
+    blc_correction: 0.1
+    sigma_deviation: 0.1
+
+  measurement_mode: "full_fem"
+  fem_interval: 5
+
+  voltage_sampling:
+    strategy: "random_mask"
+    mask_ratio: 0.2
+
+data:
+  dataset_path: "./data/generated/circle_dataset_11466.h5"
+  val_dataset_path: "./data/generated/circle_dataset_11466.h5"
+  test_dataset_path: "./data/generated/circle_dataset_11466.h5"
+  jacobian_path: "./data/generated/jacobian.npy"
+  num_workers: 4
+  prefetch_factor: 2
+
+logging:
+  log_interval: 20
+  save_interval: 25
+  vis_interval: 25
+  use_tensorboard: true
+  use_wandb: true
+  wandb_project: "eit-root-imaging"
+  wandb_entity: null

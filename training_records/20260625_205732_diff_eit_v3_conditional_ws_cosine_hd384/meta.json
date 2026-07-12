@@ -1,0 +1,16 @@
+{
+  "version": "v3",
+  "n_elems": 4424,
+  "hidden_dim": 384,
+  "T": 500,
+  "n_params": 38768321,
+  "phase": "conditional",
+  "lr": 0.0002,
+  "schedule": "cosine",
+  "warm_start": true,
+  "model_type": "x0_prediction",
+  "run_id": "20260625_205732_diff_eit_v3_conditional_ws_cosine_hd384",
+  "name": "diff_eit_v3_conditional_ws_cosine_hd384",
+  "start_time": "2026-06-25T20:57:32.653156",
+  "status": "running"
+}

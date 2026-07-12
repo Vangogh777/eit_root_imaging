@@ -1,0 +1,24 @@
+{"event": "best_supervised_saved", "time": "2026-07-01T15:40:49.976258", "re": 0.4032875597476959, "source": "ema", "epoch": 1}
+{"event": "best_supervised_saved", "time": "2026-07-01T15:50:49.050476", "re": 0.37200555205345154, "source": "ema", "epoch": 2}
+{"event": "best_supervised_saved", "time": "2026-07-01T16:00:48.664367", "re": 0.35686907172203064, "source": "ema", "epoch": 3}
+{"event": "best_supervised_saved", "time": "2026-07-01T16:10:47.991243", "re": 0.3387642502784729, "source": "ema", "epoch": 4}
+{"event": "best_supervised_saved", "time": "2026-07-01T16:20:47.764805", "re": 0.3284415006637573, "source": "ema", "epoch": 5}
+{"event": "best_supervised_saved", "time": "2026-07-01T16:30:46.896278", "re": 0.31913742423057556, "source": "ema", "epoch": 6}
+{"event": "best_supervised_saved", "time": "2026-07-01T16:40:44.850002", "re": 0.3125987648963928, "source": "ema", "epoch": 7}
+{"event": "best_supervised_saved", "time": "2026-07-01T16:50:43.936085", "re": 0.30897417664527893, "source": "ema", "epoch": 8}
+{"event": "best_supervised_saved", "time": "2026-07-01T17:00:43.152718", "re": 0.30278000235557556, "source": "ema", "epoch": 9}
+{"event": "best_supervised_saved", "time": "2026-07-01T17:10:42.116696", "re": 0.30014950037002563, "source": "ema", "epoch": 10}
+{"event": "best_supervised_saved", "time": "2026-07-01T17:20:41.192158", "re": 0.29798728227615356, "source": "ema", "epoch": 11}
+{"event": "best_supervised_saved", "time": "2026-07-01T17:30:40.592107", "re": 0.2933989465236664, "source": "ema", "epoch": 12}
+{"event": "best_supervised_saved", "time": "2026-07-01T17:40:39.969325", "re": 0.29154452681541443, "source": "ema", "epoch": 13}
+{"event": "best_supervised_saved", "time": "2026-07-01T17:50:38.608415", "re": 0.28797927498817444, "source": "ema", "epoch": 14}
+{"event": "best_supervised_saved", "time": "2026-07-01T18:10:38.832446", "re": 0.2867257297039032, "source": "ema", "epoch": 16}
+{"event": "best_supervised_saved", "time": "2026-07-01T18:20:38.832911", "re": 0.2835356891155243, "source": "ema", "epoch": 17}
+{"event": "best_supervised_saved", "time": "2026-07-01T18:40:35.042831", "re": 0.2832992970943451, "source": "ema", "epoch": 19}
+{"event": "best_supervised_saved", "time": "2026-07-01T18:50:32.290979", "re": 0.2827725410461426, "source": "ema", "epoch": 20}
+{"event": "best_supervised_saved", "time": "2026-07-01T19:10:27.412035", "re": 0.2801791727542877, "source": "ema", "epoch": 22}
+{"event": "best_supervised_saved", "time": "2026-07-01T19:20:25.083016", "re": 0.2785223722457886, "source": "ema", "epoch": 23}
+{"event": "best_supervised_saved", "time": "2026-07-01T20:00:15.375357", "re": 0.2779393494129181, "source": "ema", "epoch": 27}
+{"event": "best_supervised_saved", "time": "2026-07-01T20:10:13.616068", "re": 0.27780288457870483, "source": "ema", "epoch": 28}
+{"event": "best_supervised_saved", "time": "2026-07-01T20:30:10.592355", "re": 0.2768508195877075, "source": "ema", "epoch": 30}
+{"event": "training_completed", "time": "2026-07-02T04:47:00.780550", "final_model": "checkpoints/20260701_153048_v2_mixed_hd256/final.pt"}

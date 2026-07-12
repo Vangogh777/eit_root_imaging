@@ -1,0 +1,15 @@
+{"event": "best_model_saved", "time": "2026-06-21T21:35:06.893043", "re": 0.2579282522201538, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T21:45:14.027867", "re": 0.2492132931947708, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T21:55:21.043787", "re": 0.24201779067516327, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T22:05:28.264039", "re": 0.23690837621688843, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T22:15:35.468469", "re": 0.23282098770141602, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T22:25:42.656082", "re": 0.22847886383533478, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T22:35:49.764036", "re": 0.22308939695358276, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T22:45:56.731045", "re": 0.220988929271698, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T22:56:04.035962", "re": 0.21756087243556976, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T23:06:11.206853", "re": 0.2159673422574997, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T23:16:18.506943", "re": 0.2148396223783493, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T23:26:25.976165", "re": 0.21385318040847778, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T23:36:33.453139", "re": 0.21367955207824707, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-21T23:46:40.459571", "re": 0.21352258324623108, "source": "ema", "path": "checkpoints/20260621_212457_v2_supervised_hd256/best.pt"}
+{"event": "training_completed", "time": "2026-06-22T00:47:21.028627", "final_model": "checkpoints/20260621_212457_v2_supervised_hd256/final.pt"}

@@ -1,0 +1,8 @@
+{"event": "best_model_saved", "time": "2026-06-27T00:14:40.012546", "epoch": 1, "val_loss": 1.0473478237787883}
+{"event": "best_model_saved", "time": "2026-06-27T00:17:50.256253", "epoch": 2, "val_loss": 0.18843464056650797}
+{"event": "best_model_saved", "time": "2026-06-27T00:21:00.763403", "epoch": 3, "val_loss": 0.10724335205223826}
+{"event": "best_model_saved", "time": "2026-06-27T00:30:23.657827", "epoch": 6, "val_loss": 0.09463000825295846}
+{"event": "best_model_saved", "time": "2026-06-27T00:33:34.846093", "epoch": 7, "val_loss": 0.08524715486499998}
+{"event": "best_model_saved", "time": "2026-06-27T00:39:52.255163", "epoch": 9, "val_loss": 0.08318927040737537}
+{"event": "best_model_saved", "time": "2026-06-27T00:43:05.342058", "epoch": 10, "val_loss": 0.06842866094989909}
+{"event": "val_RE", "time": "2026-06-27T00:43:31.634472", "epoch": 10, "val_RE": 2.3881901025772097}

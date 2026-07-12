@@ -1,0 +1,154 @@
+
+\documentclass[border=8pt, multi, tikz]{standalone} 
+\usepackage{import}
+\subimport{/tmp/PlotNeuralNet/layers/}{init}
+\usetikzlibrary{positioning}
+\usetikzlibrary{3d} %for including external image 
+
+\def\ConvColor{rgb:yellow,5;red,2.5;white,5}
+\def\ConvReluColor{rgb:yellow,5;red,5;white,5}
+\def\PoolColor{rgb:red,1;black,0.3}
+\def\UnpoolColor{rgb:blue,2;green,1;black,0.3}
+\def\FcColor{rgb:blue,5;red,2.5;white,5}
+\def\FcReluColor{rgb:blue,5;red,5;white,4}
+\def\SoftmaxColor{rgb:magenta,5;black,7}   
+\def\SumColor{rgb:blue,5;green,15}
+
+\def\GridColor{rgb:orange,5;yellow,3;white,2}
+\def\GNNColor{rgb:green,5;blue,2;white,2}
+\def\DataColor{rgb:cyan,3;white,5}
+\def\DiffColor{rgb:red,5;orange,2;white,2}
+\def\SensColor{rgb:yellow,5;orange,3;white,2}
+\def\TradColor{rgb:orange,6;red,3;white,2}
+
+\newcommand{\copymidarrow}{\tikz \draw[-Stealth,line width=0.8mm,draw={rgb:blue,4;red,1;green,1;black,3}] (-0.3,0) -- ++(0.3,0);}
+
+\begin{document}
+\begin{tikzpicture}
+\tikzstyle{connection}=[ultra thick,every node/.style={sloped,allow upside down},draw=\edgecolor,opacity=0.7]
+\tikzstyle{copyconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw={rgb:blue,4;red,1;green,1;black,3},opacity=0.7]
+
+\pic[shift={(0,0,0)}] at (0,0,0)
+    {Box={
+        name=rv,
+        caption={\textbf{V}},
+        xlabel={{{B,6,208}}},
+        zlabel={Input},
+        fill=\DataColor,
+        height=18,
+        width=1.5,
+        depth=22
+        }
+    };
+
+\pic[shift={(1.2,2.5,0)}] at (rv-east)
+    {Box={
+        name=trad,
+        caption={\textbf{Traditional Rec.}},
+        xlabel={{{GN / GREIT}}},
+        zlabel={Tikhonov},
+        fill=\TradColor,
+        height=26,
+        width=2.8,
+        depth=26
+        }
+    };
+\draw [connection]  (rv-east) -- (trad-west);
+
+\pic[shift={(1.2,2.5,0)}] at (trad-east)
+    {Box={
+        name=s0,
+        caption={\textbf{$\sigma_0$}},
+        xlabel={{{B,N}}},
+        zlabel={Coarse},
+        fill=\DataColor,
+        height=18,
+        width=1.5,
+        depth=22
+        }
+    };
+\draw [connection]  (trad-east) -- (s0-west);
+
+\pic[shift={(1.2,0,0)}] at (rv-east)
+    {Box={
+        name=rve,
+        caption={\textbf{VoltageEnc}},
+        xlabel={{{208 to 512}}},
+        zlabel={Global},
+        fill=\ConvColor,
+        height=22,
+        width=2.2,
+        depth=24
+        }
+    };
+\draw [connection]  (rv-east) -- (rve-west);
+
+\pic[shift={(1.2,2.5,0)}] at (s0-east)
+    {Box={
+        name=rc,
+        caption={\textbf{ResidualComputer}},
+        xlabel={{{dV, J$^T$dV}}},
+        zlabel={Residual},
+        fill=\GridColor,
+        height=26,
+        width=2.5,
+        depth=26
+        }
+    };
+\draw [connection]  (s0-east) -- (rc-west);
+\draw [connection, draw=blue!40] (rve-east) -- ++(0.2,0) |- (rc-north);
+\pic[shift={(1.8,0,0)}] at (rc-east)
+    {Box={
+        name=rgnn,
+        caption={\textbf{ResidualMeshGNN}},
+        xlabel={{{EdgeConv on FEM}}},
+        zlabel={$\Delta\sigma$},
+        fill=\GNNColor,
+        height=30,
+        width=2.8,
+        depth=28
+        }
+    };
+\draw [connection]  (rc-east) -- (rgnn-west);
+\draw [connection, draw=blue!40] (rve-east) -- ++(1.5,0) |- (rgnn-south);\draw [connection, draw=orange!40, dashed] (s0-east) -- ++(0.5,0) |- (rgnn-south);
+\pic[shift={(1.2,0,0)}] at (rgnn-east)
+    {Box={
+        name=ds,
+        caption={\textbf{$\Delta\sigma$}},
+        xlabel={{{B,N}}},
+        zlabel={Corr},
+        fill=\DataColor,
+        height=18,
+        width=1.5,
+        depth=22
+        }
+    };
+\draw [connection]  (rgnn-east) -- (ds-west);
+
+\pic[shift={(1.2,2.5,0)}] at (ds-east) 
+    {Ball={
+        name=add,
+        fill=\SumColor,
+        opacity=0.7,
+        radius=2.5,
+        logo=$+$
+        }
+    };
+\draw [connection]  (ds-east) -- (add-west);
+\draw [connection, draw=orange!40, dashed] (s0-east) -- ++(5.5,0) |- (add-north);
+\pic[shift={(1.2,2.5,0)}] at (add-east)
+    {Box={
+        name=rf,
+        caption={\textbf{$\sigma_{final}$}},
+        xlabel={{{= $\sigma_0$+$\Delta\sigma$}}},
+        zlabel={B,N},
+        fill=\DataColor,
+        height=22,
+        width=1.8,
+        depth=24
+        }
+    };
+\draw [connection]  (add-east) -- (rf-west);
+
+\end{tikzpicture}
+\end{document}

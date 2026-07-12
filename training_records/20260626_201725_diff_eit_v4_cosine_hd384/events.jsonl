@@ -1,0 +1,5 @@
+{"event": "best_model_saved", "time": "2026-06-26T20:21:42.988248", "epoch": 70, "val_loss": 0.1907429516921559}
+{"event": "val_RE", "time": "2026-06-26T20:21:44.942402", "epoch": 70, "val_RE": 1.8870882272720337}
+{"event": "best_model_saved", "time": "2026-06-26T20:26:03.919903", "epoch": 71, "val_loss": 0.16237309764301966}
+{"event": "val_RE", "time": "2026-06-26T21:04:10.125517", "epoch": 80, "val_RE": 2.0173776149749756}
+{"event": "best_model_saved", "time": "2026-06-26T21:21:07.369641", "epoch": 84, "val_loss": 0.1593365504938577}

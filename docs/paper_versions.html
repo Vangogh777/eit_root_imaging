@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/docs/favicon.svg" type="image/svg+xml">
+<title>论文版本 - Conv-Spatial EIT</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #0a0e17;
+    color: #e0e8f0;
+    min-height: 100vh;
+    line-height: 1.6;
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background:
+        radial-gradient(ellipse at 20% 50%, rgba(59, 130, 246, 0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 20%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.container {
+    position: relative;
+    z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 60px 24px;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 50px;
+}
+
+.header h1 {
+    font-size: 36px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 12px;
+}
+
+.header p {
+    color: #64748b;
+    font-size: 15px;
+}
+
+.version-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.version-card {
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(59, 130, 246, 0.15);
+    border-radius: 16px;
+    padding: 28px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    text-decoration: none;
+    display: block;
+}
+
+.version-card:hover {
+    border-color: rgba(59, 130, 246, 0.4);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(59, 130, 246, 0.15);
+}
+
+.version-card.current {
+    border-color: rgba(34, 211, 238, 0.5);
+    box-shadow: 0 0 30px rgba(34, 211, 238, 0.1);
+    position: relative;
+}
+
+.version-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.version-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.version-date {
+    font-size: 13px;
+    color: #64748b;
+}
+
+.current-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: linear-gradient(135deg, #22d3ee, #3b82f6);
+    color: #0f172a;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.version-card.current .version-date {
+    margin-right: 60px;
+}
+
+.version-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.version-date {
+    font-size: 13px;
+    color: #64748b;
+}
+
+.version-subtitle {
+    font-size: 14px;
+    color: #94a3b8;
+    margin-bottom: 16px;
+}
+
+.changes-section h4 {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.changes-list {
+    list-style: none;
+}
+
+.changes-list li {
+    position: relative;
+    padding-left: 20px;
+    font-size: 14px;
+    color: #94a3b8;
+    margin-bottom: 6px;
+}
+
+.changes-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.changes-list li.new::before { background: #22d3ee; }
+.changes-list li.improved::before { background: #10b981; }
+.changes-list li.fixed::before { background: #f59e0b; }
+.changes-list li.removed::before { background: #ef4444; }
+
+.tag {
+    display: inline-block;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    margin-right: 8px;
+    margin-bottom: 8px;
+}
+
+.tag-new { background: rgba(34, 211, 238, 0.15); color: #22d3ee; }
+.tag-improved { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+.tag-fixed { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+
+.footer {
+    text-align: center;
+    margin-top: 50px;
+    padding-top: 30px;
+    border-top: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.footer a {
+    color: #60a5fa;
+    text-decoration: none;
+}
+
+.footer a:hover {
+    text-decoration: underline;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>论文版本</h1>
+        <p>Conv-Spatial EIT 论文版本历史与修改记录</p>
+    </div>
+
+    <div class="version-list">
+        <!-- V2 - 当前版本 -->
+        <a href="/docs/conv_spatial_eit_paper_v2.html" class="version-card current">
+            <span class="current-badge">当前</span>
+            <div class="version-header">
+                <div class="version-title">第二版 (V2)</div>
+                <div class="version-date">2026-06-22</div>
+            </div>
+            <div class="version-subtitle">混合数据集与多频融合架构</div>
+            <div style="margin-bottom: 12px;">
+                <span class="tag tag-new">新增</span>
+                <span class="tag tag-improved">改进</span>
+            </div>
+            <div class="changes-section">
+                <h4>主要更新</h4>
+                <ul class="changes-list">
+                    <li class="new">新增混合数据集实验：单圆 + 椭圆 + 双圆 + 正方形</li>
+                    <li class="new">引入跨频率注意力模块 (FreqCrossAttn)</li>
+                    <li class="new">更新模型参数量至 6.1M (hidden_dim=256)</li>
+                    <li class="improved">升级架构图，采用现代深色主题设计</li>
+                    <li class="improved">实验结果更新为混合数据集表现</li>
+                    <li class="improved">完善消融实验，增加 GNN 深度分析</li>
+                    <li class="fixed">修正参数量描述与实际一致</li>
+                </ul>
+            </div>
+        </a>
+
+        <!-- V1 -->
+        <a href="/docs/conv_spatial_eit_paper_v1.html" class="version-card">
+            <div class="version-header">
+                <div class="version-title">第一版 (V1)</div>
+                <div class="version-date">2026-06-15</div>
+            </div>
+            <div class="version-subtitle">基础框架与单圆数据集验证</div>
+            <div class="changes-section">
+                <h4>内容概述</h4>
+                <ul class="changes-list">
+                    <li class="new">Conv-Spatial EIT 基础架构设计</li>
+                    <li class="new">GridSampler 网格桥接机制</li>
+                    <li class="new">Fourier 位置编码方案</li>
+                    <li class="new">两阶段训练策略</li>
+                    <li class="new">单圆内含物数据集实验验证</li>
+                </ul>
+            </div>
+        </a>
+    </div>
+
+    <div class="footer">
+        <p>
+            <a href="/docs/index.html">← 返回首页</a>
+            &nbsp;·&nbsp;
+            <a href="https://github.com/Vangogh777/eit_root_imaging" target="_blank">GitHub 仓库</a>
+        </p>
+    </div>
+</div>
+
+</body>
+</html>

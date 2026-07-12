@@ -305,13 +305,113 @@ class GATv2Layer(nn.Module):
         return x_agg
 
 
+class PhysicsAwareMessagePassing(nn.Module):
+    """
+    PAMP: Physics-Aware Message Passing Layer
+
+    与标准 GNN 的区别：
+    1. 边权重受 Jacobian 灵敏度门控调制
+    2. 消息内容包含物理特征（J_mutual + J_ratio）
+    3. 聚合按灵敏度加权，而非均匀/学习加权
+
+    输入:
+        h: (B, N, in_dim)
+        edge_idx: (2, E) 有向边索引
+        edge_weight: (E,) 归一化度权重
+        phys_edge_feat: (E, 2) Jacobian物理边特征:
+            [0] J_mutual: 列余弦相似度 [0,1]
+            [1] J_ratio: 灵敏度范数比 [-1,1]
+    输出:
+        h_new: (B, N, out_dim)
+    """
+    def __init__(self, in_dim: int, out_dim: int, dropout: float = 0.1):
+        super().__init__()
+        # 消息网络：输入 [h_i, h_j, phys_ij]
+        self.message_mlp = nn.Sequential(
+            nn.Linear(in_dim * 2 + 2, out_dim),  # +2: 2个Jacobian物理特征
+            nn.LayerNorm(out_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(out_dim, out_dim),
+            nn.LayerNorm(out_dim),
+        )
+        # 灵敏度调制门控
+        self.sensitivity_gate = nn.Sequential(
+            nn.Linear(2, 16),
+            nn.GELU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid(),
+        )
+        # 更新网络
+        self.update_mlp = nn.Sequential(
+            nn.Linear(in_dim + out_dim, out_dim),
+            nn.LayerNorm(out_dim),
+            nn.GELU(),
+        )
+
+    def forward(self, x, edge_idx, edge_weight, edge_feat=None, phys_edge_feat=None):
+        """phys_edge_feat: (E, 2) or None (回退到无物理消息)
+        
+        分块处理边以控制显存（EIT 网格可能有 50k+ 有向边）
+        """
+        B, N, D = x.shape
+        device = x.device
+        src, dst = edge_idx
+
+        # 使用物理边特征（如果有）否则用几何边特征
+        feat = phys_edge_feat if phys_edge_feat is not None else edge_feat
+        if feat is not None:
+            if feat.dim() == 2:
+                feat = feat.to(device)
+        else:
+            feat = torch.zeros(edge_idx.shape[1], 2, device=device)
+
+        # 预计算门控 (不依赖 batch)
+        gate = self.sensitivity_gate(feat)  # (E, 1)
+
+        n_edges = edge_idx.shape[1]
+        out_dim = self.message_mlp[0].out_features  # 从第一个 Linear 层读取输出维度
+        h_agg = torch.zeros(B, N, out_dim, device=device, dtype=x.dtype)
+
+        chunk_size = 5000
+        for start in range(0, n_edges, chunk_size):
+            end = min(start + chunk_size, n_edges)
+            s, d = src[start:end], dst[start:end]
+            gw = gate[start:end]      # (chunk, 1)
+            ew = edge_weight[start:end]
+            ef = feat[start:end]      # (chunk, 2)
+
+            # 源节点和目标节点特征
+            h_src = x[:, s]           # (B, chunk, D)
+            h_dst = x[:, d]
+
+            # 消息构造
+            phys_exp = ef.unsqueeze(0).expand(B, -1, -1)  # (B, chunk, 2)
+            msg_input = torch.cat([h_src, h_dst, phys_exp], dim=-1)  # (B, chunk, 2D+2)
+            msg = self.message_mlp(msg_input) * gw.unsqueeze(0)  # (B, chunk, D)
+
+            # 聚合
+            weighted_msg = msg * ew.view(1, -1, 1)
+            h_agg.scatter_add_(1,
+                d.view(1, -1, 1).expand(B, -1, out_dim),
+                weighted_msg)
+
+        # 更新
+        h_new = self.update_mlp(torch.cat([x, h_agg], dim=-1))
+        return h_new
+
+
 class ConvSpatialEIT(nn.Module):
     """
-    Conv-Spatial EIT 模型 v2
+    Conv-Spatial EIT 模型 v2 → v3 (PAMP)
+
+    v3 核心改进:
+      - Physics-Aware Message Passing (PAMP): Jacobian互灵敏度调制GNN消息
+      - 保持 v2 所有组件 (FrequencyCrossAttention, ConvEncoder, GridSampler)
 
     用法:
-        model = ConvSpatialEIT(n_elems=11466)
-        model.setup_mesh(centers, elements)
+        model = ConvSpatialEIT(n_elems=11466, use_pamp=True)
+        model.setup_mesh(centers, elements, jacobian=J)  # J 用于物理特征
         out = model(voltages)  # voltages: (B, 6, 208)
     """
 
@@ -326,7 +426,8 @@ class ConvSpatialEIT(nn.Module):
                 sigma_min: float = 0.005,
                  sigma_max: float = 0.1,
                  use_gat: bool = False,
-                 n_heads: int = 4):
+                 n_heads: int = 4,
+                 use_pamp: bool = False):
         super().__init__()
 
         self.n_elems = n_elems
@@ -334,6 +435,7 @@ class ConvSpatialEIT(nn.Module):
         self.sigma_max = sigma_max
         self.use_gat = use_gat
         self.n_heads = n_heads
+        self.use_pamp = use_pamp
 
         # 0. 多频融合层（6频 → 1频）
         self.freq_fusion = FrequencyCrossAttention(n_freq=n_frequencies, d_model=64)
@@ -462,9 +564,31 @@ class ConvSpatialEIT(nn.Module):
         self.register_buffer('pos_encoding', pe)
         self.pos_dim = pe.shape[1]
 
+        # ── 物理边特征 (PAMP v3 新增) ──
+        self._has_physics = False
+        if self.use_pamp and jacobian is not None:
+            phys_feat = self._compute_physics_edge_features(jacobian, edge_list)
+            self.register_buffer('_phys_edge_feat', torch.from_numpy(phys_feat).float())
+            self._has_physics = True
+            pamp_edge_dim = 2  # J_mutual + J_ratio
+            print(f"  [PAMP] Jacobian 物理边特征: 已启用 ({phys_feat.shape})")
+        else:
+            self.register_buffer('_phys_edge_feat', torch.empty(0))
+            pamp_edge_dim = 0
+
         # ── 重建 GNN（第一层输入维度 = Conv通道 + 位置编码维度）──
         gnn_in_dim = self.encoder.total_out_channels + self.pos_dim
-        if self.use_gat:
+        if self.use_pamp:
+            # PAMP: 物理感知消息传递
+            self.gnn_blocks = nn.ModuleList([
+                PhysicsAwareMessagePassing(
+                    gnn_in_dim if i == 0 else self.gnn_hidden,
+                    self.gnn_hidden,
+                    dropout=self.gnn_dropout,
+                )
+                for i in range(self.gnn_layers)
+            ])
+        elif self.use_gat:
             # GATv2 多头注意力图卷积
             self.gnn_blocks = nn.ModuleList([
                 GATv2Layer(
@@ -511,7 +635,44 @@ class ConvSpatialEIT(nn.Module):
 
         print(f"  [ConvSpatial] 网格: {n_elems} 单元, {edge_list.shape[1]} 条有向边, "
               f"位置编码: {self.pos_dim}维"
+              + (f", PAMP: 已启用" if self._has_physics else "")
               + (f", Jᵀr: 已启用" if self._has_jacobian else ""))
+
+    def _compute_physics_edge_features(self, jacobian, edge_list):
+        """
+        Jacobian 物理边特征: 将 EIT 物理耦合嵌入 GNN 消息传递。
+
+        参数:
+            jacobian: (n_meas, n_elems) 灵敏度矩阵
+            edge_list: (2, n_edges) 有向边索引
+
+        返回:
+            phys_feat: (n_edges, 2) 物理边特征
+                [0] J_mutual: 列余弦相似度 [0,1] — 两个单元对测量的联合影响
+                [1] J_ratio: 灵敏度范数比 [-1,1] — 测量对不同位置的敏感度差异
+        """
+        J = jacobian
+        J_norm = np.linalg.norm(J, axis=0)  # (n_elems,)
+        n_edges = edge_list.shape[1]
+        phys_feat = np.zeros((n_edges, 2), dtype=np.float32)
+
+        for e in range(n_edges):
+            i, j = int(edge_list[0, e]), int(edge_list[1, e])
+            if i == j:  # self-loop: 完全相关, 等灵敏度
+                phys_feat[e] = [1.0, 0.0]
+                continue
+            J_i, J_j = J[:, i], J[:, j]
+            norm_ij = np.linalg.norm(J_i) * np.linalg.norm(J_j) + 1e-12
+            # 特征0: 互灵敏度 (cosine similarity of J columns)
+            phys_feat[e, 0] = np.dot(J_i, J_j) / norm_ij
+            # 特征1: 灵敏度比 (log ratio, 不对称)
+            phys_feat[e, 1] = np.log((J_norm[i] + 1e-12) / (J_norm[j] + 1e-12))
+
+        # 归一化到合理范围
+        phys_feat[:, 0] = (phys_feat[:, 0] + 1) / 2       # cosine [-1,1] → [0,1]
+        phys_feat[:, 1] = np.clip(phys_feat[:, 1], -3, 3) / 3  # log ratio → [-1,1]
+
+        return phys_feat
 
     def forward(self, voltages: torch.Tensor) -> dict:
         """
@@ -562,8 +723,14 @@ class ConvSpatialEIT(nn.Module):
             edge_idx = self._edge_idx.to(device)
             edge_weight = self._edge_weight.to(device)
             edge_feat = self._edge_feat.to(device) if hasattr(self, '_edge_feat') else None
-            for gnn in self.gnn_blocks:
-                h = gnn(h, edge_idx, edge_weight, edge_feat=edge_feat)
+            if self._has_physics:
+                phys_edge_feat = self._phys_edge_feat.to(device)
+                for gnn in self.gnn_blocks:
+                    h = gnn(h, edge_idx, edge_weight, edge_feat=edge_feat,
+                            phys_edge_feat=phys_edge_feat)
+            else:
+                for gnn in self.gnn_blocks:
+                    h = gnn(h, edge_idx, edge_weight, edge_feat=edge_feat)
 
         # 5a. 初始预测 σ₀（主路径）
         sigma_raw_0 = self.output_head(h).squeeze(-1)        # (B, n_elems)
@@ -611,15 +778,16 @@ class ConvSpatialEIT(nn.Module):
 
 
 if __name__ == "__main__":
-    n_elems = 5000
+    n_elems = 1000
     np.random.seed(0)
     centers = np.random.randn(n_elems, 2).astype(np.float32) * 0.1
     elements = np.random.randint(0, 500, (n_elems, 3)).astype(np.int64)
 
+    # 测试标准模式
     model = ConvSpatialEIT(n_frequencies=6, n_meas=208, n_elems=n_elems)
     model.setup_mesh(centers, elements)
 
-    x = torch.randn(4, 6, 208)  # standard input shape
+    x = torch.randn(2, 6, 208)  # smaller batch
     out = model(x)
     print(f"输入: {x.shape}")
     print(f"输出 sigma: {out['sigma'].shape}")
@@ -632,3 +800,17 @@ if __name__ == "__main__":
     loss = out['sigma'].mean()
     loss.backward()
     print("✅ 前向+反向通过")
+
+    # 测试 PAMP 模式
+    print("\n=== 测试 PAMP 模式 ===")
+    J = np.random.randn(208, n_elems).astype(np.float32) * 0.01
+    model_pamp = ConvSpatialEIT(n_frequencies=6, n_meas=208, n_elems=n_elems, use_pamp=True)
+    model_pamp.setup_mesh(centers, elements, jacobian=J)
+    print(f"PAMP: {'启用' if model_pamp._has_physics else '禁用'}")
+    out_pamp = model_pamp(x)
+    print(f"输出 sigma: {out_pamp['sigma'].shape}")
+    print(f"范围: [{out_pamp['sigma'].min().item():.4f}, {out_pamp['sigma'].max().item():.4f}]")
+    print(f"PAMP 参数: {sum(p.numel() for p in model_pamp.parameters()):,}")
+    loss_pamp = out_pamp['sigma'].mean()
+    loss_pamp.backward()
+    print("✅ PAMP 前向+反向通过")

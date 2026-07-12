@@ -1,0 +1,3 @@
+{"event": "best_model_saved", "time": "2026-06-24T22:40:51.019721", "re": 0.47083762288093567, "source": "raw", "path": "checkpoints/20260624_223848_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T22:42:54.985025", "re": 0.4478638768196106, "source": "ema", "path": "checkpoints/20260624_223848_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T22:44:58.715632", "re": 0.4174107611179352, "source": "ema", "path": "checkpoints/20260624_223848_v2_both_hd256/best.pt"}

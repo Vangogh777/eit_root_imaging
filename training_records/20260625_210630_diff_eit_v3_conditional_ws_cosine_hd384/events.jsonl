@@ -1,0 +1,18 @@
+{"event": "best_model_saved", "time": "2026-06-25T21:10:23.775104", "epoch": 1, "val_loss": 0.008194962538601388}
+{"event": "best_model_saved", "time": "2026-06-25T21:14:17.333125", "epoch": 2, "val_loss": 0.0077700360090516155}
+{"event": "best_model_saved", "time": "2026-06-25T21:18:11.418649", "epoch": 3, "val_loss": 0.007481316431602906}
+{"event": "best_model_saved", "time": "2026-06-25T21:22:05.344798", "epoch": 4, "val_loss": 0.00699658617044666}
+{"event": "best_model_saved", "time": "2026-06-25T21:25:59.632875", "epoch": 5, "val_loss": 0.0064801598311446254}
+{"event": "best_model_saved", "time": "2026-06-25T21:29:53.518014", "epoch": 6, "val_loss": 0.006371293394338517}
+{"event": "best_model_saved", "time": "2026-06-25T21:33:47.214421", "epoch": 7, "val_loss": 0.006235781879652114}
+{"event": "best_model_saved", "time": "2026-06-25T21:37:40.903518", "epoch": 8, "val_loss": 0.0059215042274445295}
+{"event": "best_model_saved", "time": "2026-06-25T21:41:34.473846", "epoch": 9, "val_loss": 0.005518079103369798}
+{"event": "best_model_saved", "time": "2026-06-25T21:45:27.902868", "epoch": 10, "val_loss": 0.005433344132533031}
+{"event": "best_model_saved", "time": "2026-06-25T21:49:21.289583", "epoch": 11, "val_loss": 0.005377467461152091}
+{"event": "best_model_saved", "time": "2026-06-25T21:53:14.633150", "epoch": 12, "val_loss": 0.005340805498971825}
+{"event": "best_model_saved", "time": "2026-06-25T21:57:07.962937", "epoch": 13, "val_loss": 0.005229840775774349}
+{"event": "best_model_saved", "time": "2026-06-25T22:01:01.487853", "epoch": 14, "val_loss": 0.004823116657678925}
+{"event": "best_model_saved", "time": "2026-06-25T22:08:45.291976", "epoch": 16, "val_loss": 0.0046176546297612645}
+{"event": "best_model_saved", "time": "2026-06-25T22:16:28.503828", "epoch": 18, "val_loss": 0.004520658026671126}
+{"event": "best_model_saved", "time": "2026-06-25T22:24:12.790776", "epoch": 20, "val_loss": 0.004291752275700371}
+{"event": "training_completed", "time": "2026-06-25T22:24:13.080856", "epoch": 20}

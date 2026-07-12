@@ -20,10 +20,10 @@ stimulation:
   frequencies: [1000]        # 单频率模式: 1kHz
 
 ground_truth:
-  conductivity_soil: 0.1     # 土壤电导率 (S/m)
-  conductivity_root: 0.5     # 根组织电导率 (S/m)
-  conductivity_air: 1e-8     # 孔隙/空气电导率
-  contrast_ratio: 5.0        # 根/土对比度
+  conductivity_background: 0.1     # 背景电导率 (S/m)
+  conductivity_inclusion: 0.5      # 内含物电导率 (S/m)
+  conductivity_air: 1e-8           # 孔隙/空气电导率
+  contrast_ratio: 5.0              # 内含物/背景对比度
 
 data:
   train_samples: 1000

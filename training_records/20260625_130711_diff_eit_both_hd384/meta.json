@@ -1,0 +1,12 @@
+{
+  "n_elems": 4424,
+  "hidden_dim": 384,
+  "T": 500,
+  "n_params": 29161409,
+  "phase": "both",
+  "lr": 0.0002,
+  "run_id": "20260625_130711_diff_eit_both_hd384",
+  "name": "diff_eit_both_hd384",
+  "start_time": "2026-06-25T13:07:11.652776",
+  "status": "interrupted"
+}

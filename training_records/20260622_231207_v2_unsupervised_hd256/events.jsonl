@@ -1,0 +1,3 @@
+{"event": "checkpoint_saved", "time": "2026-06-23T04:08:59.485591", "path": "checkpoints/20260622_231207_v2_unsupervised_hd256/unsup_epoch20.pt", "epoch": 20}
+{"event": "checkpoint_saved", "time": "2026-06-23T09:05:54.857111", "path": "checkpoints/20260622_231207_v2_unsupervised_hd256/unsup_epoch40.pt", "epoch": 40}
+{"event": "training_completed", "time": "2026-06-23T11:34:35.639003", "final_model": "checkpoints/20260622_231207_v2_unsupervised_hd256/final.pt"}

@@ -23,10 +23,10 @@ stimulation:
   frequencies: [1000, 5000, 10000, 50000, 100000, 500000]  # 6 频率（pyEIT 1.2.4 返回相同结果，用于多频融合训练）
 
 ground_truth:
-  conductivity_soil: 0.01    # 土壤电导率 (S/m)
-  conductivity_root: 0.05    # 根组织电导率 (S/m)
-  conductivity_air: 1e-8     # 孔隙/空气电导率
-  contrast_ratio: 5.0        # 根/土对比度
+  conductivity_background: 0.01    # 背景电导率 (S/m)
+  conductivity_inclusion: 0.05     # 内含物电导率 (S/m), 固定为背景的5倍
+  conductivity_air: 1e-8           # 孔隙/空气电导率
+  contrast_ratio: 5.0              # 内含物/背景对比度
 
 data:
   train_samples: 1000         # 训练集样本数（降低到1200总量）

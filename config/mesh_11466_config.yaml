@@ -1,0 +1,34 @@
+# ═══════════════════════════════════════════════════════════
+# 精细网格配置 — 11466 单元 (mesh_resolution=0.0025)
+#
+# 用于高分辨率 per-shape 数据集生成和训练
+# 配合 train_config.yaml (n_elems=11466)
+# ═══════════════════════════════════════════════════════════
+
+mesh:
+  type: "circle"
+  radius: 0.10               # 桶半径 10 cm
+  mesh_resolution: 0.0025    # 精细网格 → 11466 单元, 5859 节点
+
+electrodes:
+  count: 16
+  type: "circle"
+  radius: 0.098              # 电极贴附半径
+
+stimulation:
+  pattern: "adjacent"
+  amplitude: 1e-3            # 1mA
+  frequencies: [1000, 5000, 10000, 50000, 100000, 500000]  # 6 频率
+
+ground_truth:
+  conductivity_background: 0.01    # 背景电导率 (S/m)
+  conductivity_inclusion: 0.05     # 内含物电导率 (S/m)
+  conductivity_air: 1e-8
+  contrast_ratio: 5.0
+
+data:
+  train_samples: 1000
+  val_samples: 100
+  test_samples: 100
+  noise_level_db: [-40, -20]
+  random_seed: 42

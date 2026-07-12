@@ -1,0 +1,23 @@
+{
+  "hidden_dim": 768,
+  "gnn_hidden": 768,
+  "gnn_layers": 4,
+  "batch_size": 32,
+  "mode": "supervised",
+  "epochs_sup": 300,
+  "epochs_unsup": 200,
+  "model_params": 12598625,
+  "lr": 0.0001,
+  "use_model_jacobian": false,
+  "use_gat": false,
+  "n_heads": 4,
+  "mcl_mode": "full_fem",
+  "dataset": "data/generated/ellipse_dataset_11466.h5",
+  "shape": "ellipse",
+  "use_linear_output": true,
+  "loss": "combined_v3",
+  "run_id": "20260628_181436_v2_ellipse_hd768",
+  "name": "v2_ellipse_hd768",
+  "start_time": "2026-06-28T18:14:36.194348",
+  "status": "running"
+}

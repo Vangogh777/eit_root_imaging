@@ -1,0 +1,22 @@
+{"event": "best_model_saved", "time": "2026-06-24T22:58:06.915574", "re": 0.4055195152759552, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:00:08.475756", "re": 0.39692944288253784, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:02:10.070289", "re": 0.3925270140171051, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:04:11.503093", "re": 0.3903980255126953, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:06:12.894901", "re": 0.3870266079902649, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:10:15.506714", "re": 0.3828697204589844, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:12:17.040349", "re": 0.3747960925102234, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:22:22.553550", "re": 0.37295785546302795, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:24:23.898816", "re": 0.36841174960136414, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:26:25.359245", "re": 0.36654341220855713, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:28:26.942671", "re": 0.3604007959365845, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:30:28.538565", "re": 0.3575248122215271, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:36:32.196884", "re": 0.3567015528678894, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:40:35.019331", "re": 0.3509679436683655, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:42:36.316316", "re": 0.349441260099411, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:44:37.738987", "re": 0.3480675220489502, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:48:40.242239", "re": 0.3463701605796814, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:52:42.640380", "re": 0.3462248146533966, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-24T23:54:44.220780", "re": 0.3439784348011017, "source": "ema", "path": "checkpoints/20260624_225603_v2_both_hd256/best.pt"}
+{"event": "best_model_saved", "time": "2026-06-25T00:39:07.106720", "re": 0.6126470565795898, "epoch": 1}
+{"event": "best_model_saved", "time": "2026-06-25T00:41:09.808702", "re": 0.5753913521766663, "epoch": 2}
+{"event": "training_completed", "time": "2026-06-25T01:01:31.483291", "final_model": "checkpoints/20260624_225603_v2_both_hd256/final.pt"}

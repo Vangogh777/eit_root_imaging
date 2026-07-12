@@ -1,0 +1,14 @@
+{
+  "version": "v4",
+  "n_elems": 4424,
+  "hidden_dim": 384,
+  "T": 50,
+  "n_params": 38768386,
+  "lr": 0.0002,
+  "schedule": "cosine",
+  "model_type": "x0_prediction_std",
+  "run_id": "20260627_015404_diff_eit_v4_cosine_hd384",
+  "name": "diff_eit_v4_cosine_hd384",
+  "start_time": "2026-06-27T01:54:04.030692",
+  "status": "running"
+}

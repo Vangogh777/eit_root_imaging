@@ -1,0 +1,11 @@
+{"event": "best_model_saved", "time": "2026-06-27T10:17:58.760199", "epoch": 1, "val_loss": 1.7803605198860168}
+{"event": "best_model_saved", "time": "2026-06-27T10:27:25.268318", "epoch": 4, "val_loss": 0.7567376668254534}
+{"event": "best_model_saved", "time": "2026-06-27T10:30:36.339851", "epoch": 5, "val_loss": 0.2522508731732766}
+{"event": "best_model_saved", "time": "2026-06-27T10:33:46.794692", "epoch": 6, "val_loss": 0.20234347507357597}
+{"event": "best_model_saved", "time": "2026-06-27T10:40:09.393132", "epoch": 8, "val_loss": 0.1843466373781363}
+{"event": "best_model_saved", "time": "2026-06-27T10:43:21.751102", "epoch": 9, "val_loss": 0.17510774762680134}
+{"event": "val_RE", "time": "2026-06-27T10:46:52.968008", "epoch": 10, "val_RE": 1.283748745918274}
+{"event": "best_model_saved", "time": "2026-06-27T10:46:56.527671", "epoch": 10, "val_loss": 0.1676714120225774}
+{"event": "best_model_saved", "time": "2026-06-27T10:50:09.348927", "epoch": 11, "val_loss": 0.16548323972771564}
+{"event": "best_model_saved", "time": "2026-06-27T10:53:20.515458", "epoch": 12, "val_loss": 0.14444338933875164}
+{"event": "best_model_saved", "time": "2026-06-27T10:56:31.791709", "epoch": 13, "val_loss": 0.12921480648219585}

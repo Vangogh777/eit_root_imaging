@@ -1,0 +1,3 @@
+{"event": "best_model_saved", "time": "2026-06-26T23:52:44.937023", "epoch": 1, "val_loss": 0.5939555524124039}
+{"event": "best_model_saved", "time": "2026-06-26T23:55:55.431282", "epoch": 2, "val_loss": 0.5886080207096206}
+{"event": "best_model_saved", "time": "2026-06-26T23:59:05.197493", "epoch": 3, "val_loss": 0.5818578981690936}

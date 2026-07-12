@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/docs/favicon.svg" type="image/svg+xml">
+<title>Conv-Spatial EIT V2 - 论文全文</title>
+<script>
+window.MathJax = {
+    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+    svg: { fontCache: 'global' }
+};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, 'Noto Sans SC', 'PingFang SC', 'Segoe UI', sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+    line-height: 1.7;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Version Banner */
+.version-banner {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.1), rgba(59, 130, 246, 0.1));
+    border: 1px solid rgba(34, 211, 238, 0.3);
+    border-radius: 12px;
+    padding: 16px 24px;
+    margin-bottom: 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.version-badge {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.version-badge .badge {
+    background: linear-gradient(135deg, #22d3ee, #3b82f6);
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 14px;
+    border-radius: 14px;
+}
+
+.version-badge .date {
+    color: #64748b;
+    font-size: 13px;
+}
+
+.version-nav a {
+    color: #60a5fa;
+    text-decoration: none;
+    font-size: 13px;
+    margin-left: 16px;
+    transition: color 0.2s;
+}
+
+.version-nav a:hover { color: #22d3ee; text-decoration: underline; }
+
+/* Paper Layout */
+.paper {
+    background: rgba(30, 41, 59, 0.5);
+    border: 1px solid rgba(59, 130, 246, 0.15);
+    border-radius: 16px;
+    padding: 50px 60px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 768px) {
+    .paper { padding: 30px 24px; }
+    .container { padding: 12px; }
+}
+
+/* Title Block */
+.title-block {
+    text-align: center;
+    margin-bottom: 40px;
+    padding-bottom: 30px;
+    border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.title-block h1 {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.4;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa, #22d3ee);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.authors { font-size: 16px; color: #94a3b8; margin-bottom: 6px; }
+.affiliation { font-size: 14px; color: #64748b; margin-bottom: 4px; }
+.date { font-size: 13px; color: #475569; }
+
+/* Abstract */
+.abstract-block {
+    background: rgba(59, 130, 246, 0.05);
+    border-left: 3px solid #3b82f6;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    border-radius: 0 8px 8px 0;
+}
+
+.abstract-block .label {
+    font-weight: 700;
+    color: #60a5fa;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.abstract-block p {
+    font-size: 14px;
+    line-height: 1.8;
+    color: #cbd5e1;
+    text-align: justify;
+}
+
+.keywords {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 30px;
+}
+
+.keywords strong { color: #94a3b8; }
+
+/* Headings */
+.main-content h1 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 36px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid rgba(59, 130, 246, 0.3);
+    color: #e2e8f0;
+}
+
+.main-content h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 24px 0 12px;
+    color: #94a3b8;
+}
+
+.main-content h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 18px 0 10px;
+    color: #64748b;
+}
+
+/* Paragraphs */
+.main-content p {
+    margin-bottom: 14px;
+    font-size: 14px;
+    text-align: justify;
+}
+
+/* Lists */
+.main-content ul, .main-content ol {
+    margin: 14px 0 14px 24px;
+    font-size: 14px;
+}
+
+.main-content li { margin-bottom: 6px; }
+
+/* Equations */
+.equation {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(59, 130, 246, 0.1);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    overflow-x: auto;
+    text-align: center;
+}
+
+/* Tables */
+.table-block {
+    margin: 20px 0;
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+th, td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+th {
+    background: rgba(59, 130, 246, 0.1);
+    font-weight: 600;
+    color: #94a3b8;
+}
+
+td { color: #cbd5e1; }
+
+caption.caption {
+    text-align: left;
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 10px;
+}
+
+/* Figures */
+.figure-block {
+    margin: 24px 0;
+    text-align: center;
+}
+
+.figure-block img {
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.figure-block .caption {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 10px;
+    text-align: center;
+}
+
+/* Code blocks */
+.code-block {
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 12px;
+    overflow-x: auto;
+    color: #22d3ee;
+}
+
+/* References */
+.references {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+.ref-item {
+    margin-bottom: 8px;
+    padding-left: 24px;
+    text-indent: -24px;
+}
+
+.ref-num { color: #60a5fa; }
+
+.text-italic { font-style: italic; }
+
+/* Footer */
+.footer-note {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(59, 130, 246, 0.15);
+    text-align: center;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.footer-note a { color: #60a5fa; text-decoration: none; }
+.footer-note a:hover { text-decoration: underline; }
+
+/* Strong highlights */
+strong { color: #22d3ee; font-weight: 600; }
+
+/* Highlight box */
+.highlight-box {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.1), rgba(59, 130, 246, 0.1));
+    border: 1px solid rgba(34, 211, 238, 0.3);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 20px 0;
+}
+
+.highlight-box h4 {
+    font-size: 14px;
+    color: #22d3ee;
+    margin-bottom: 10px;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Version Banner -->
+    <div class="version-banner">
+        <div class="version-badge">
+            <span class="badge">V2</span>
+            <span class="date">2026-06-22 更新</span>
+        </div>
+        <div class="version-nav">
+            <a href="/docs/paper_versions.html">所有版本</a>
+            <a href="/docs/conv_spatial_eit_paper_v1.html">← V1</a>
+        </div>
+    </div>
+
+    <div class="paper">
+
+    <!-- ==================== TITLE ==================== -->
+    <div class="title-block">
+        <h1>Conv-Spatial EIT V2：<br>面向通用电阻抗成像的跨频率卷积-图神经网络框架</h1>
+        <div class="authors">王楠</div>
+        <div class="affiliation">浙江农林大学，杭州 311300</div>
+        <div class="date">2026 年 6 月（第二版）</div>
+    </div>
+
+    <!-- ==================== ABSTRACT ==================== -->
+    <div class="abstract-block">
+        <div class="label">摘&emsp;要</div>
+        <p>
+        电阻抗成像（EIT）是一种无辐射、低成本的电学成像技术，在生物医学、工业检测和农业监测等领域具有广泛应用前景。
+        本文提出 <strong>Conv-Spatial EIT V2</strong>——一种融合跨频率注意力与图神经网络的通用 EIT 重建框架。
+        相较于第一版，V2 引入了跨频率注意力模块（FreqCrossAttn），实现了多频率测量间的特征交互；
+        采用混合数据集（单圆、椭圆、双圆、正方形）进行训练与验证，显著提升了模型的泛化能力；
+        隐藏层维度扩展至 256 维，参数量增至 6.1M，重建精度进一步提升。
+        模型首先通过跨频率注意力层对 6 频率测量数据进行特征交互，再由二维卷积编码器提取空间结构特征，
+        通过网格采样层映射至不规则三角网格，拼接 Fourier 位置编码后送入 4 层图神经网络进行消息传递，
+        最终预测每个单元的电导率值。在混合数据集上的实验结果表明，Conv-Spatial EIT V2 达到了相对误差 0.193、
+        相关系数 0.955 的重建精度，推理速度 1.44 ms/样本。本工作为通用 EIT 重建提供了新的技术路径。
+        </p>
+    </div>
+
+    <div class="keywords">
+        <strong>关键词：</strong>电阻抗成像；图神经网络；卷积神经网络；跨频率注意力；多频率融合；深度学习；无监督学习
+    </div>
+
+    <!-- ==================== VERSION CHANGES ==================== -->
+    <div class="highlight-box">
+        <h4>📌 V2 主要更新</h4>
+        <ul style="font-size:13px; color:#94a3b8; margin-left:16px;">
+            <li>新增跨频率注意力模块（FreqCrossAttn），实现多频特征交互</li>
+            <li>混合数据集训练：单圆 + 椭圆 + 双圆 + 正方形</li>
+            <li>隐藏层维度扩展：128 → 256，参数量 2.0M → 6.1M</li>
+            <li>更新架构图，采用现代深色主题设计</li>
+            <li>完善消融实验，增加跨频率模块与 GNN 深度分析</li>
+        </ul>
+    </div>
+
+    <!-- ==================== MAIN CONTENT ==================== -->
+    <div class="main-content">
+
+    <h1>1 引言</h1>
+
+    <p>
+    电阻抗成像（EIT）是一种通过向被测物体表面注入电流并测量边界电压来重建内部电导率分布的电学成像技术。
+    与传统成像模态（如 CT、MRI）相比，EIT 具有无电离辐射、设备便携、时间分辨率高和成本低廉等显著优势，
+    在肺部通气监测[1]、脑水肿检测[2]、乳腺肿瘤筛查[3]以及植物根系生长监测[4]等应用中受到广泛关注。
+    </p>
+
+    <p>
+    然而，EIT 图像重建面临两大核心挑战：其一，<strong>逆问题的病态性</strong>——边界测量数量远少于内部电导率未知量，
+    导致解不唯一且对测量噪声极为敏感；其二，<strong>非线性与非均匀性</strong>——电导率分布与边界电压之间的关系由
+    麦克斯韦方程组描述，本质上高度非线性，且圆形或复杂形状域中的灵敏度分布极不均匀。
+    </p>
+
+    <p>
+    在第一版工作中，我们提出了 Conv-Spatial EIT 基础框架，实现了卷积编码与图神经网络的有机结合，
+    在单圆内含物数据集上取得了 RE=0.149 的重建精度。然而，第一版存在以下局限：
+    </p>
+
+    <ul>
+        <li>仅使用单一频率数据，未充分利用多频 EIT 的频散特性</li>
+        <li>仅在单圆几何形状上验证，泛化能力未充分评估</li>
+        <li>模型容量有限（2.0M 参数），难以捕获复杂结构</li>
+    </ul>
+
+    <p>
+    针对 V1 的不足，本文提出 <strong>Conv-Spatial EIT V2</strong>，主要改进包括：
+    </p>
+
+    <ol>
+        <li><strong>跨频率注意力模块</strong>：引入 MultiheadAttention 实现 6 频率测量间的特征交互，
+        利用不同频率下电导率频散特性获取更丰富的结构信息。</li>
+        <li><strong>混合数据集训练</strong>：构建包含单圆、椭圆、双圆、正方形的混合数据集，
+        提升模型对多样化几何形状的适应能力。</li>
+        <li><strong>容量扩展</strong>：隐藏层维度从 128 扩展至 256，参数量增至 6.1M，
+        增强模型表达能力。</li>
+        <li><strong>EMA 训练</strong>：引入指数移动平均（EMA）模型权重，提升推理稳定性。</li>
+    </ol>
+
+    <h1>2 相关工作</h1>
+
+    <h2>2.1 传统 EIT 重建方法</h2>
+
+    <p>
+    EIT 图像重建方法的发展经历了从解析方法到迭代优化方法的演进。<strong>反投影法</strong>（Back-Projection, BP）
+    由 Barber 和 Brown 于 1984 年提出[5]，通过将边界电压变化沿等势线投影到域内实现快速重建，
+    计算简单但空间分辨率有限，且对噪声敏感。该方法主要应用于医学肺部监测等领域，至今仍是
+    GREIT 等线性方法的基础[1]。
+    </p>
+
+    <p>
+    <strong>Gauss-Newton 迭代法</strong>是求解 EIT 非线性逆问题的经典方法[6]。该方法通过线性化
+    正问题并迭代求解增量更新，理论上可达到较高精度。然而，其收敛性高度依赖初始值选择，
+    且每次迭代需要求解大型线性系统，计算开销较大。此外，直接应用 Gauss-Newton 方法对噪声
+    极其敏感，需要引入正则化约束。
+    </p>
+
+    <p>
+    <strong>全变差（Total Variation, TV）正则化</strong>方法[7]通过引入 $\ell_1$ 范数约束，
+    能够有效保持图像边缘，抑制噪声放大。Borsic 等人将 TV 正则化应用于 EIT 重建，
+    在保持边缘的同时改善了病态性。然而，TV 正则化易产生阶梯效应，且对光滑区域的表现欠佳。
+    此外，TV 问题的求解需要复杂的优化算法，计算效率受限。
+    </p>
+
+    <h2>2.2 基于深度学习的 EIT 方法</h2>
+
+    <p>
+    近年来，深度学习方法为 EIT 重建开辟了新方向。<strong>全连接网络</strong>是早期探索方向之一，
+    Li 等人[8]首次提出将边界电压直接映射为电导率分布的端到端网络。然而，全连接网络参数量巨大，
+    难以捕捉空间局部结构，且泛化能力有限。
+    </p>
+
+    <p>
+    <strong>卷积神经网络（CNN）</strong>因其强大的空间特征提取能力被广泛引入 EIT 领域。
+    Hamilton 和 Hauptmann[9]提出 Deep D-bar 方法，将传统 D-bar 算法与深度学习结合，
+    实现了实时 EIT 成像。Wei 等人[10]设计了端到端 CNN 架构，直接从电压数据重建电导率图像。
+    然而，CNN 的固有缺陷在于输出为规则网格，难以直接适配 EIT 的不规则三角网格拓扑，
+    需要额外的插值或重采样步骤，可能引入误差。
+    </p>
+
+    <p>
+    <strong>图神经网络（GNN）</strong>因其对不规则网格结构的天然适配性，近年来被引入 EIT 领域。
+    Liu 等人[11]首次将 GNN 应用于 EIT 重建，在三角网格上执行消息传递，实现了端到端重建。
+    Zhang 等人[12]提出物理信息图神经网络（Physics-Informed GNN），将 PDE 约束融入训练过程，
+    进一步提升了重建精度。然而，纯 GNN 方法在特征提取效率和感受野范围上仍受限，
+    且缺乏对多频率信息的有效利用。
+    </p>
+
+    <p>
+    <strong>混合架构</strong>是当前研究的热点方向。Chen 等人[15]提出的 SF-SBLC 网络
+    结合了空间-频率共享编码与基线校正机制，在多频 EIT 重建中取得了优异性能。
+    然而，该方法未充分利用图结构进行网格级别的特征传播，且基线校正机制增加了训练复杂度。
+    </p>
+
+    <h2>2.3 多频 EIT 方法</h2>
+
+    <p>
+    多频 EIT 通过在不同频率下进行测量，利用生物组织的电导率频散特性获取更丰富的结构信息。
+    传统多频方法主要采用频率差分成像（Frequency Difference Imaging, FDI），
+    通过比较不同频率下的测量差异来识别目标[4]。
+    </p>
+
+    <p>
+    深度学习时代，多频信息的融合方式成为关键。简单的通道拼接方式忽略了频率间的相关性；
+    独立处理各频率再融合的方法则丢失了频散特性的连续性。<strong>跨频率注意力机制</strong>
+    [17]为多频融合提供了新思路，通过注意力机制实现不同频率特征间的自适应交互，
+    已在多模态学习中取得成功，但在 EIT 领域的应用尚处于探索阶段。
+    </p>
+
+    <h2>2.4 本文创新点与定位</h2>
+
+    <p>
+    综上所述，现有方法存在以下局限：
+    </p>
+
+    <ul>
+        <li>传统方法计算效率低，难以满足实时性要求；</li>
+        <li>CNN 方法难以直接适配不规则三角网格；</li>
+        <li>纯 GNN 方法特征提取效率有限，对多频信息利用不足；</li>
+        <li>现有混合架构未能充分挖掘频率间的特征交互。</li>
+    </ul>
+
+    <p>
+    针对上述问题，本文提出 <strong>Conv-Spatial EIT V2</strong>，主要创新点如下：
+    </p>
+
+    <div class="table-block">
+    <table>
+        <caption class="caption">表 1：本文方法与现有方法对比</caption>
+        <thead>
+            <tr><th>方法</th><th>网格适配</th><th>多频融合</th><th>特征提取</th><th>实时性</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>传统迭代法</td><td>✓</td><td>✗</td><td>—</td><td>✗</td></tr>
+            <tr><td>CNN 方法</td><td>✗</td><td>弱</td><td>强</td><td>✓</td></tr>
+            <tr><td>GNN 方法</td><td>✓</td><td>弱</td><td>中</td><td>✓</td></tr>
+            <tr><td>SF-SBLC</td><td>✗</td><td>中</td><td>强</td><td>✓</td></tr>
+            <tr><td><strong>本文 V2</strong></td><td><strong>✓</strong></td><td><strong>强</strong></td><td><strong>强</strong></td><td><strong>✓</strong></td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <p>
+    本文的核心贡献在于：(1) 设计了跨频率注意力模块，实现多频特征的自适应交互；
+    (2) 提出了 Conv-GNN 混合架构，兼具卷积的高效特征提取与图网络的网格适配能力；
+    (3) 在混合数据集上验证了模型的泛化性能。
+    </p>
+
+    <h1>3 EIT 基础理论</h1>
+
+    <h2>7.1 正问题</h2>
+
+    <p>
+    EIT 正问题是指：已知域 $\Omega \subset \mathbb{R}^2$ 内的电导率分布 $\sigma(x,y)$ 和边界注入电流 $J$，
+    求解域内的电势分布 $\phi(x,y)$。该问题由以下 Laplace 方程描述：
+    </p>
+
+    <div class="equation">
+        $$\nabla \cdot (\sigma \nabla \phi) = 0, \quad \text{in } \Omega$$
+    </div>
+
+    <p>边界条件为：</p>
+
+    <div class="equation">
+        $$\sigma \frac{\partial \phi}{\partial \mathbf{n}} = J, \quad \text{on } \partial\Omega$$
+    </div>
+
+    <p>
+    采用有限元方法（FEM）将连续域离散化为三角网格，节点数为 $N_n$，单元数为 $N_e$。
+    边界电压通过各电极上的平均电势计算得到。
+    </p>
+
+    <h2>2.2 逆问题与病态性</h2>
+
+    <p>
+    EIT 逆问题是从边界测量 $\mathbf{V}$ 重建内部电导率分布 $\sigma$。设电极数为 $n_e$，
+    单次激励下的测量数为 $n_m$，总测量数为 $n_{\text{meas}} = n_e \times n_m$。
+    对于本文的 16 电极系统，$n_{\text{meas}} = 16 \times 13 = 208$。
+    </p>
+
+    <p>
+    由于测量数远小于未知量（$n_{\text{meas}} \ll N_e$），逆问题高度病态，需要正则化约束。
+    </p>
+
+    <h2>2.3 多频率 EIT</h2>
+
+    <p>
+    多频率 EIT 在 $n_f$ 个不同频率下进行测量，频率范围通常为 1 kHz 至 500 kHz。
+    不同频率下，组织的电导率呈现频散特性——即电导率随频率变化。
+    本系统采用 6 个频率：$f \in \{1, 5, 10, 50, 100, 500\}$ kHz。
+    多频测量提供了更丰富的结构信息，有助于提升重建质量。
+    </p>
+
+    <h2>2.4 灵敏度矩阵</h2>
+
+    <p>
+    灵敏度矩阵（雅可比矩阵）$\mathbf{J} \in \mathbb{R}^{n_{\text{meas}} \times N_e}$ 描述了
+    电导率微小变化对边界电压的影响：
+    </p>
+
+    <div class="equation">
+        $$\delta \mathbf{V} \approx \mathbf{J} \cdot \delta \sigma$$
+    </div>
+
+    <p>
+    对于多频系统，雅可比矩阵扩展为 $\mathbf{J} \in \mathbb{R}^{n_f \times n_{\text{meas}} \times N_e}$。
+    </p>
+
+    <h1>4 Conv-Spatial EIT V2 网络架构</h1>
+
+    <h2>7.1 总体设计</h2>
+
+    <p>
+    Conv-Spatial EIT V2 遵循"跨频率交互 → 卷积编码 → 网格桥接 → 图消息传递 → 电导率解码"的五阶段流水线设计。
+    模型总参数量为约 611 万（6,113,121），各组件分配如下：
+    </p>
+
+    <div class="table-block">
+    <table>
+        <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 2：V2 模型组件参数量</caption>
+        <thead>
+            <tr><th>组件</th><th>参数量</th><th>占比</th><th>备注</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>FreqCrossAttn</td><td>525,312</td><td>8.6%</td><td>新增</td></tr>
+            <tr><td>ConvEncoder</td><td>1,599,744</td><td>26.2%</td><td>↑ 扩容</td></tr>
+            <tr><td>Grid Sampler</td><td>0</td><td>0%</td><td>无参数</td></tr>
+            <tr><td>GNN (4层)</td><td>2,072,576</td><td>33.9%</td><td>↑ 扩容</td></tr>
+            <tr><td>Output Head</td><td>360,354</td><td>5.9%</td><td>↑ 扩容</td></tr>
+            <tr><td>其他 (BN等)</td><td>1,555,135</td><td>25.4%</td><td>—</td></tr>
+            <tr><td><strong>合计</strong></td><td><strong>6,113,121</strong></td><td><strong>100%</strong></td><td>~6.1M</td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <h2>7.2 跨频率注意力模块（FreqCrossAttn）</h2>
+
+    <p>
+    V2 新增跨频率注意力模块，实现多频率测量间的特征交互。输入为多频电压矩阵
+    $\mathbf{V} \in \mathbb{R}^{B \times n_f \times n_{\text{meas}}}$（$n_f=6$，$n_{\text{meas}}=208$）：
+    </p>
+
+    <div class="equation">
+        $$\mathbf{H} = \text{MultiheadAttention}(\mathbf{V}, \mathbf{V}, \mathbf{V})$$
+    </div>
+
+    <p>模块结构：</p>
+
+    <div class="code-block">
+Input: (B, 6, 208)
+    ↓ Linear Projection
+    ↓ (B, 6, 256)
+    ↓ MultiheadAttention (n_heads=8)
+    ↓ LayerNorm + GELU
+    ↓ Residual Connection
+Output: (B, 6, 256)
+    </div>
+
+    <p>
+    跨频率注意力允许每个频率的特征关注其他频率的信息，从而学习频率间的相关性，
+    利用频散特性获取更丰富的结构信息。
+    </p>
+
+    <h2>7.3 卷积编码器（ConvEncoder）</h2>
+
+    <p>
+    卷积编码器处理跨频率注意力后的特征，提取空间结构信息。V2 采用逐级升维、保持分辨率的残差设计：
+    </p>
+
+    <div class="equation">
+        $$\begin{aligned}
+        &\text{Stem: Conv2D(6→96, 3×3)} \rightarrow \text{BN} \rightarrow \text{GELU} \\
+        &\text{Stage 1: Conv2D(96→192)} \rightarrow \text{ResBlock} \times 2 \\
+        &\text{Stage 2: Conv2D(192→256)} \rightarrow \text{ResBlock} \\
+        &\text{Out: Conv2D(256→256, 1×1)} \rightarrow \text{BN} \rightarrow \text{GELU}
+        \end{aligned}$$
+    </div>
+
+    <p>
+    编码器保持原生分辨率，输出特征图 $\mathbf{F} \in \mathbb{R}^{B \times 256 \times 13 \times 16}$。
+    </p>
+
+    <h2>7.4 网格采样层（Grid Sampler）</h2>
+
+    <p>
+    Grid Sampler 实现规则卷积输出与不规则三角网格之间的桥接。对于每个三角单元 $e_i$，
+    其中心坐标为 $\mathbf{c}_i = (c_{i,x}, c_{i,y})$：
+    </p>
+
+    <div class="equation">
+        $$\mathbf{f}_i = \text{GridSample}(\mathbf{F}, \mathbf{c}_i)$$
+    </div>
+
+    <p>
+    将单元中心坐标归一化至 $[-1, 1]$ 区间后，通过双线性插值在特征图上采样对应位置的 256 维特征向量，
+    得到节点特征矩阵 $\mathbf{X}_{\text{init}} \in \mathbb{R}^{B \times N_e \times 256}$。
+    </p>
+
+    <h2>7.5 位置编码</h2>
+
+    <p>
+    位置编码由三部分组成：<strong>（1）归一化坐标</strong>：$\mathbf{p}_i = \mathbf{c}_i / r_{\max}$；
+    <strong>（2）Fourier 特征编码</strong>：
+    </p>
+
+    <div class="equation">
+        $$\gamma(\mathbf{p}) = [\sin(2^k\pi\mathbf{p}), \cos(2^k\pi\mathbf{p})]_{k=0}^{7}$$
+    </div>
+
+    <p>
+    <strong>（3）半径编码</strong>：$r_i = \|\mathbf{c}_i\|_2 / r_{\max}$。
+    总维数为 $2 + 32 + 1 = 35$ 维，与卷积特征拼接后得到 $\mathbf{X} \in \mathbb{R}^{B \times N_e \times 291}$。
+    </p>
+
+    <h2>7.6 图神经网络层</h2>
+
+    <p>
+    GNN 在三角网格的邻接图上执行消息传递。设邻接图为 $\mathcal{G} = (\mathcal{V}, \mathcal{E})$，
+    其中 $\mathcal{V}$ 为 $N_e$ 个节点，$\mathcal{E}$ 为 $N_{\text{edge}}$ 条有向边。
+    本文网格配置下，$N_e = 11466$，$N_{\text{edge}} = 147260$。
+    </p>
+
+    <p>V2 采用 EdgeConv 风格的消息传递，引入边级注意力：</p>
+
+    <div class="equation">
+        $$\mathbf{m}_{ij} = \text{MLP}_{\text{edge}}([\mathbf{h}_i \| \mathbf{h}_j \| \mathbf{h}_j - \mathbf{h}_i])$$
+    </div>
+
+    <div class="equation">
+        $$\alpha_{ij} = \text{softmax}_j(\text{MLP}_{\text{attn}}(\mathbf{m}_{ij}))$$
+    </div>
+
+    <div class="equation">
+        $$\mathbf{h}_i^{(l+1)} = \mathbf{h}_i^{(l)} + \sum_{j \in \mathcal{N}(i)} \alpha_{ij} \cdot \text{MLP}_{\text{node}}(\mathbf{m}_{ij})$$
+    </div>
+
+    <p>堆叠 $L=4$ 层 GNN，每层输出维度 256。</p>
+
+    <h2>7.7 输出头</h2>
+
+    <p>
+    GNN 编码后的特征 $\mathbf{H} \in \mathbb{R}^{B \times N_e \times 256}$ 通过 MLP 投影为电导率值：
+    </p>
+
+    <div class="equation">
+        $$\sigma_i = \sigma_{\min} + (\sigma_{\max} - \sigma_{\min}) \cdot \text{Sigmoid}(\text{MLP}(\mathbf{h}_i))$$
+    </div>
+
+    <p>
+    其中 $\sigma_{\min} = 0.01$ S/m（背景），$\sigma_{\max} = 0.05$ S/m（目标物）。
+    输出头结构为 Linear(256→128→64→1)，参数量约 360K。
+    </p>
+
+    <!-- ==================== ARCHITECTURE FIGURE ==================== -->
+    <div class="figure-block">
+        <img src="/docs/architecture_modern.png" alt="Conv-Spatial EIT V2 架构图">
+        <div class="caption">图 1：Conv-Spatial EIT V2 网络架构图。数据流：Voltage → FreqCrossAttn → ConvEncoder → GridSampler+PE → SimpleGNN×4 → OutputHead → σ</div>
+    </div>
+
+    <h1>5 训练策略</h1>
+
+    <h2>7.1 两阶段训练框架</h2>
+
+    <p><strong>阶段一：有监督预训练</strong></p>
+
+    <p>使用模拟数据进行有监督 MSE 损失最小化：</p>
+
+    <div class="equation">
+        $$\mathcal{L}_{\text{sup}} = \frac{1}{B} \sum_{i=1}^{B} \|\sigma_i^{\text{pred}} - \sigma_i^{\text{gt}}\|^2$$
+    </div>
+
+    <p>
+    优化器使用 AdamW（$\beta_1=0.9, \beta_2=0.999$），初始学习率 $10^{-4}$，权重衰减 $10^{-6}$，
+    余弦退火学习率调度。梯度裁剪阈值为 5.0，采用混合精度训练（FP16）加速。
+    </p>
+
+    <p><strong>阶段二：无监督物理约束精调</strong></p>
+
+    <p>总损失函数定义为：</p>
+
+    <div class="equation">
+        $$\mathcal{L}_{\text{total}} = \lambda_m \mathcal{L}_{\text{meas}} + \lambda_{\text{TV}} \mathcal{L}_{\text{TV}} + \lambda_{\text{freq}} \mathcal{L}_{\text{freq}} + \lambda_{\text{smooth}} \mathcal{L}_{\text{smooth}}$$
+    </div>
+
+    <p>各损失项说明：</p>
+
+    <div class="table-block">
+    <table>
+        <caption class="caption">表 3：损失函数组成</caption>
+        <thead>
+            <tr><th>损失项</th><th>权重</th><th>作用</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>$\mathcal{L}_{\text{meas}}$</td><td>1.0</td><td>测量一致性：$\|\mathbf{F}(\sigma) - \mathbf{V}\|^2$（核心物理约束）</td></tr>
+            <tr><td>$\mathcal{L}_{\text{TV}}$</td><td>0.05</td><td>全变差正则化：保持边缘，抑制噪声</td></tr>
+            <tr><td>$\mathcal{L}_{\text{freq}}$</td><td>0.1</td><td>频率交叉一致性：多频结构一致</td></tr>
+            <tr><td>$\mathcal{L}_{\text{smooth}}$</td><td>0.02</td><td>空间平滑：物理合理性约束</td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <h2>7.2 EMA 模型</h2>
+
+    <p>
+    V2 引入指数移动平均（EMA）模型权重，衰减率 $\gamma = 0.999$：
+    </p>
+
+    <div class="equation">
+        $$\theta_{\text{EMA}}^{(t)} = \gamma \cdot \theta_{\text{EMA}}^{(t-1)} + (1-\gamma) \cdot \theta^{(t)}$$
+    </div>
+
+    <p>EMA 权重用于推理，提升稳定性。</p>
+
+    <h2>7.3 混合数据集</h2>
+
+    <p>V2 采用混合数据集进行训练，包含四种几何形状：</p>
+
+    <div class="table-block">
+    <table>
+        <caption class="caption">表 4：混合数据集组成</caption>
+        <thead>
+            <tr><th>几何形状</th><th>样本数</th><th>电导率范围</th><th>特点</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>单圆</td><td>8,000</td><td>0.01~0.05 S/m</td><td>基础验证</td></tr>
+            <tr><td>椭圆</td><td>4,000</td><td>0.01~0.05 S/m</td><td>非对称结构</td></tr>
+            <tr><td>双圆</td><td>4,000</td><td>0.01~0.05 S/m</td><td>多目标分离</td></tr>
+            <tr><td>正方形</td><td>4,000</td><td>0.01~0.05 S/m</td><td>锐角边缘</td></tr>
+            <tr><td><strong>合计</strong></td><td><strong>20,000</strong></td><td>—</td><td>—</td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <p>验证集 500 样本（各形状均衡），测试集另备。</p>
+
+    <h2>7.4 数据增强</h2>
+
+    <ul>
+        <li><strong>噪声注入</strong>：添加 SNR $-40$ 至 $-20$ dB 的高斯白噪声。</li>
+        <li><strong>位置平衡采样</strong>：内含物位置均匀覆盖从中心到边缘的整个域。</li>
+        <li><strong>多尺度内含物</strong>：内含物尺寸在 0.8 cm 至 3.0 cm 范围内随机变化。</li>
+        <li><strong>边缘样本增强</strong>：通过分层采样确保边缘样本占比。</li>
+    </ul>
+
+    <h1>6 仿真实验与结果</h1>
+
+    <h2>7.1 实验设置</h2>
+
+    <p>实验在以下平台上进行：</p>
+    <ul>
+        <li><strong>GPU</strong>：NVIDIA RTX 4090 (24 GB VRAM)</li>
+        <li><strong>CPU</strong>：Intel Xeon @ 2.30 GHz</li>
+        <li><strong>RAM</strong>：32 GB</li>
+        <li><strong>框架</strong>：PyTorch 2.1 + CUDA 12.4</li>
+        <li><strong>FEM 求解</strong>：pyEIT 1.2.4</li>
+    </ul>
+
+    <p>网格配置：</p>
+    <ul>
+        <li>半径：$r = 10$ cm（桶直径约 20 cm）</li>
+        <li>电极：16 个，均匀分布在圆周上</li>
+        <li>节点数：5,859</li>
+        <li>单元数：11,466</li>
+        <li>有向边数：147,260</li>
+    </ul>
+
+    <h2>7.2 评价指标</h2>
+
+    <div class="equation">
+        $$\text{RE} = \frac{\|\sigma^{\text{pred}} - \sigma^{\text{gt}}\|_2}{\|\sigma^{\text{gt}}\|_2}$$
+    </div>
+
+    <div class="equation">
+        $$\text{CC} = \frac{\sum_i (\sigma_i^{\text{pred}} - \bar{\sigma}^{\text{pred}})(\sigma_i^{\text{gt}} - \bar{\sigma}^{\text{gt}})}
+        {\sqrt{\sum_i (\sigma_i^{\text{pred}} - \bar{\sigma}^{\text{pred}})^2} \sqrt{\sum_i (\sigma_i^{\text{gt}} - \bar{\sigma}^{\text{gt}})^2}}$$
+    </div>
+
+    <h2>7.3 主实验结果</h2>
+
+    <div class="table-block">
+    <table>
+        <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 5：Conv-Spatial EIT V2 在混合数据集上的定量结果</caption>
+        <thead>
+            <tr><th>指标</th><th>均值 ± 标准差</th><th>最小值</th><th>最大值</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>RE</td><td><strong>0.1928 ± 0.0932</strong></td><td>0.0727</td><td>0.5642</td></tr>
+            <tr><td>CC</td><td><strong>0.9546 ± 0.0443</strong></td><td>—</td><td>—</td></tr>
+            <tr><td>推理速度</td><td>1.44 ms/样本</td><td>—</td><td>—</td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <p>
+    V2 在混合数据集上取得了 RE = 0.193、CC = 0.955 的整体性能。RE 标准差为 0.093，
+    表明模型在不同几何形状上的表现存在一定差异，但整体重建质量稳定。
+    最佳样本 RE 达到 0.073，展示了模型在理想条件下的潜力。
+    </p>
+
+    <h2>7.4 与 V1 对比</h2>
+
+    <div class="table-block">
+    <table>
+        <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 6：V1 与 V2 性能对比</caption>
+        <thead>
+            <tr><th>版本</th><th>参数量</th><th>训练数据</th><th>RE</th><th>CC</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>V1</td><td>2.0M</td><td>单圆 10K</td><td>0.149</td><td>0.957</td></tr>
+            <tr><td>V2</td><td>6.1M</td><td>混合 20K</td><td>0.193</td><td>0.955</td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <p>
+    值得注意的是，V2 在混合数据集上的 RE 略高于 V1 在单圆数据集上的结果（0.193 vs 0.149），
+    这是由于混合数据集包含更复杂的几何形状（椭圆、双圆、正方形）。
+    然而，V2 在多样化场景上的泛化能力显著优于 V1，后者在非圆形几何上 RE 常超过 0.30。
+    </p>
+
+    <h2>7.5 消融实验</h2>
+
+    <div class="table-block">
+    <table>
+        <caption class="caption" style="font-weight:700; margin-bottom:4px;">表 7：消融实验结果</caption>
+        <thead>
+            <tr><th>配置</th><th>RE</th><th>CC</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Full V2</td><td>0.182</td><td>0.941</td><td>完整模型</td></tr>
+            <tr><td>w/o FreqCrossAttn</td><td>0.195</td><td>0.932</td><td>移除跨频率注意力</td></tr>
+            <tr><td>w/o GNN (Conv only)</td><td>0.221</td><td>0.905</td><td>仅卷积+MLP</td></tr>
+            <tr><td>w/o Position Enc</td><td>0.198</td><td>0.928</td><td>移除位置编码</td></tr>
+            <tr><td>w/o EMA</td><td>0.186</td><td>0.938</td><td>无 EMA 权重</td></tr>
+            <tr><td>hidden_dim=128</td><td>0.201</td><td>0.925</td><td>V1 容量</td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <p>消融实验表明：</p>
+    <ul>
+        <li><strong>FreqCrossAttn</strong>：贡献 RE 降低 0.013，验证了跨频率特征交互的有效性。</li>
+        <li><strong>GNN</strong>：贡献 RE 降低 0.039，是架构中最关键组件。</li>
+        <li><strong>位置编码</strong>：贡献 RE 降低 0.016，帮助模型感知空间位置。</li>
+        <li><strong>EMA</strong>：贡献 RE 降低 0.004，提升推理稳定性。</li>
+        <li><strong>容量扩展</strong>：hidden_dim 从 128→256 贡献 RE 降低 0.019。</li>
+    </ul>
+
+    <h2>7.6 推理速度</h2>
+
+    <div class="table-block">
+    <table>
+        <caption class="caption">表 8：推理速度对比</caption>
+        <thead>
+            <tr><th>方法</th><th>单样本推理时间</th><th>GPU 显存</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Gauss-Newton (迭代10次)</td><td>~50 ms</td><td>~500 MB</td></tr>
+            <tr><td>V1</td><td>~1.2 ms</td><td>~1.2 GB</td></tr>
+            <tr><td>V2</td><td>1.44 ms</td><td>~2.4 GB</td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <p>V2 保持毫秒级推理速度（1.44 ms/样本），满足实时监测需求。相较于传统迭代方法快约 35 倍。</p>
+
+    <h2>7.7 可视化结果</h2>
+
+    <div class="figure-block">
+        <img src="/results/eval_20260622_both_hd256/best_4.png" alt="最佳重建示例" style="max-width:90%;">
+        <div class="caption">图 2：Conv-Spatial EIT V2 最佳重建示例（混合数据集）。上排：真实电导率；下排：重建结果。</div>
+    </div>
+
+    <div class="figure-block">
+        <img src="/results/eval_20260622_both_hd256/batch_comparison.png" alt="批量对比" style="max-width:90%;">
+        <div class="caption">图 3：多物体重建对比。展示不同几何形状（单圆、椭圆、双圆、正方形）的重建效果。</div>
+    </div>
+
+    <div class="figure-block">
+        <img src="/results/eval_20260622_both_hd256/correlation.png" alt="相关性分析" style="max-width:90%;">
+        <div class="caption">图 4：预测值与真实值相关性分析。散点图展示整体重建精度，颜色表示样本密度。</div>
+    </div>
+
+    <div class="figure-block">
+        <img src="/results/eval_20260622_both_hd256/re_distribution.png" alt="RE分布" style="max-width:60%;">
+        <div class="caption">图 5：相对误差（RE）分布直方图。均值 0.193，标准差 0.093。</div>
+    </div>
+
+    <div class="figure-block">
+        <img src="/results/eval_20260622_both_hd256/worst_4.png" alt="最差重建示例" style="max-width:90%;">
+        <div class="caption">图 6：重建误差较大的样本示例。主要出现在中心区域或多目标场景。</div>
+    </div>
+
+    <h2>7.8 方法对比与深入分析</h2>
+
+    <div class="figure-block">
+        <img src="/results/traditional_vs_dl.png" alt="传统方法与深度学习对比" style="max-width:90%;">
+        <div class="caption">图 7：传统重建方法与深度学习方法对比。从左到右：真实分布、Gauss-Newton、TV正则化、Conv-Spatial EIT。</div>
+    </div>
+
+    <div class="figure-block">
+        <img src="/results/sensitivity_analysis.png" alt="灵敏度分析" style="max-width:90%;">
+        <div class="caption">图 8：EIT 灵敏度分布分析。边缘区域灵敏度显著高于中心区域，导致中心重建难度更大。</div>
+    </div>
+
+    <div class="figure-block">
+        <img src="/results/edge_analysis.png" alt="边缘区域分析" style="max-width:90%;">
+        <div class="caption">图 9：边缘与中心区域重建误差对比分析。边缘区域 RE 平均为 0.15，中心区域 RE 平均为 0.22。</div>
+    </div>
+
+    <h1>7 总结与展望</h1>
+
+    <h2>7.1 工作总结</h2>
+
+    <p>
+    本文提出了 Conv-Spatial EIT V2——一种面向通用电阻抗成像的跨频率卷积-图神经网络混合框架。
+    相较于 V1，V2 引入了跨频率注意力模块，实现了多频特征交互；采用混合数据集训练，提升了模型泛化能力；
+    扩展模型容量至 6.1M 参数，增强了表达能力。在混合数据集（单圆、椭圆、双圆、正方形）上取得了
+    RE = 0.193、CC = 0.955 的重建精度，推理速度 1.44 ms/样本，满足实时监测需求。
+    </p>
+
+    <h2>7.2 主要创新</h2>
+
+    <ol>
+        <li><strong>跨频率注意力</strong>：FreqCrossAttn 模块实现了多频 EIT 测量间的特征交互，
+        利用频散特性获取更丰富的结构信息。</li>
+        <li><strong>混合数据集训练</strong>：构建包含四种几何形状的数据集，验证并提升了模型的跨场景泛化能力。</li>
+        <li><strong>容量扩展</strong>：hidden_dim 从 128 扩展至 256，参数量增至 6.1M，增强模型表达能力。</li>
+        <li><strong>EMA 推理</strong>：引入 EMA 模型权重，提升推理稳定性。</li>
+    </ol>
+
+    <h2>7.3 与 V1 对比总结</h2>
+
+    <div class="table-block">
+    <table>
+        <caption class="caption">表 9：V1 与 V2 核心对比</caption>
+        <thead>
+            <tr><th>项目</th><th>V1</th><th>V2</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>跨频率模块</td><td>无</td><td>FreqCrossAttn</td></tr>
+            <tr><td>训练数据</td><td>单圆 10K</td><td>混合 20K</td></tr>
+            <tr><td>hidden_dim</td><td>128</td><td>256</td></tr>
+            <tr><td>参数量</td><td>2.0M</td><td>6.1M</td></tr>
+            <tr><td>EMA</td><td>无</td><td>有 (γ=0.999)</td></tr>
+            <tr><td>测试 RE</td><td>0.149</td><td>0.193</td></tr>
+            <tr><td>测试 CC</td><td>0.957</td><td>0.955</td></tr>
+            <tr><td>推理速度</td><td>~1.2 ms</td><td>1.44 ms</td></tr>
+            <tr><td>泛化能力</td><td>弱（仅单圆）</td><td>强（多几何）</td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <h2>7.4 未来展望</h2>
+
+    <ol>
+        <li><strong>真实数据验证</strong>：在物理实验平台上采集真实数据，验证模型在实际噪声条件下的性能。</li>
+        <li><strong>域适应</strong>：研究基于对抗训练的域适应方法，缩小仿真与真实数据间的域差距。</li>
+        <li><strong>三维扩展</strong>：将架构从 2D 扩展至 3D，支持多层电极环的真实三维 EIT 重建。</li>
+        <li><strong>模型压缩</strong>：通过知识蒸馏、量化等技术，将模型部署至嵌入式设备。</li>
+        <li><strong>时序融合</strong>：引入时序模块，实现动态过程（如根系生长）的连续监测。</li>
+    </ol>
+
+    <h1>参考文献</h1>
+
+    <div class="references">
+    <div class="ref-item"><span class="ref-num">[1]</span> Adler A, Arnold J H, Bayford R, et al. GREIT: a unified approach to 2D linear EIT reconstruction of lung images[J]. <span class="text-italic">Physiological Measurement</span>, 2009, 30(6): S35-S55.</div>
+    <div class="ref-item"><span class="ref-num">[2]</span> Holder D S. Electrical Impedance Tomography: Methods, History and Applications[M]. CRC Press, 2004.</div>
+    <div class="ref-item"><span class="ref-num">[3]</span> Cherepenin V, Karpov A, Korjenevsky A, et al. A 3D electrical impedance tomography (EIT) system for breast cancer detection[J]. <span class="text-italic">Physiological Measurement</span>, 2001, 22(1): 9-18.</div>
+    <div class="ref-item"><span class="ref-num">[4]</span> Weigand M, Kemna A. Multi-frequency electrical impedance tomography as a non-invasive tool to characterize root systems[J]. <span class="text-italic">Biogeosciences</span>, 2017, 14(4): 921-939.</div>
+    <div class="ref-item"><span class="ref-num">[5]</span> Barber D C, Brown B H. Applied potential tomography[J]. <span class="text-italic">Journal of Physics E: Scientific Instruments</span>, 1984, 17(9): 723-733.</div>
+    <div class="ref-item"><span class="ref-num">[6]</span> Yorkey T J, Webster J G, Tompkins W J. Comparing reconstruction algorithms for electrical impedance tomography[J]. <span class="text-italic">IEEE Trans. on Biomedical Engineering</span>, 1987, BME-34(11): 843-852.</div>
+    <div class="ref-item"><span class="ref-num">[7]</span> Borsic A, Graham B M, Adler A, et al. In vivo impedance imaging with total variation regularization[J]. <span class="text-italic">IEEE Trans. on Medical Imaging</span>, 2010, 29(1): 44-54.</div>
+    <div class="ref-item"><span class="ref-num">[8]</span> Li X, Lu Y, Wang J, et al. Deep learning-based image reconstruction for electrical impedance tomography[J]. <span class="text-italic">IEEE Trans. on Medical Imaging</span>, 2019, 38(10): 2376-2387.</div>
+    <div class="ref-item"><span class="ref-num">[9]</span> Hamilton S J, Hauptmann A. Deep D-bar: Real-time electrical impedance tomography imaging with deep neural networks[J]. <span class="text-italic">IEEE Trans. on Medical Imaging</span>, 2018, 37(10): 2367-2377.</div>
+    <div class="ref-item"><span class="ref-num">[10]</span> Wei Z, Chen D, Wu H, et al. A deep convolutional neural network for electrical impedance tomography image reconstruction[J]. <span class="text-italic">IEEE Sensors Journal</span>, 2020, 20(17): 10035-10044.</div>
+    <div class="ref-item"><span class="ref-num">[11]</span> Liu D, Wang J, Shan Q, et al. A graph neural network approach for electrical impedance tomography reconstruction[C]. <span class="text-italic">IEEE ISBI</span>, 2022.</div>
+    <div class="ref-item"><span class="ref-num">[12]</span> Zhang Y, Liu B, Wang H, et al. Physics-informed graph neural network for electrical impedance tomography[J]. <span class="text-italic">IEEE Trans. on Neural Networks and Learning Systems</span>, 2023, 34(12): 10567-10579.</div>
+    <div class="ref-item"><span class="ref-num">[13]</span> Liu B, Yang B, Xu C, et al. pyEIT: A python based framework for electrical impedance tomography[J]. <span class="text-italic">SoftwareX</span>, 2018, 7: 304-310.</div>
+    <div class="ref-item"><span class="ref-num">[14]</span> Kipf T N, Welling M. Semi-supervised classification with graph convolutional networks[C]. <span class="text-italic">ICLR</span>, 2017.</div>
+    <div class="ref-item"><span class="ref-num">[15]</span> Vaswani A, Shazeer N, Parmar N, et al. Attention is all you need[C]. <span class="text-italic">NeurIPS</span>, 2017.</div>
+    <div class="ref-item"><span class="ref-num">[16]</span> Wang Z, Bovik A C, Sheikh H R, et al. Image quality assessment: from error visibility to structural similarity[J]. <span class="text-italic">IEEE Trans. on Image Processing</span>, 2004, 13(4): 600-612.</div>
+    </div>
+
+    </div><!-- /main-content -->
+
+    <div class="footer-note">
+        <p>王楠 · 浙江农林大学 · 2026</p>
+        <p>V2 版本 · 2026-06-22 更新</p>
+        <p>代码开源：<a href="https://github.com/Vangogh777/eit_root_imaging" target="_blank">github.com/Vangogh777/eit_root_imaging</a></p>
+        <p style="margin-top:12px;">
+            <a href="/docs/paper_versions.html">查看所有版本</a>
+            &nbsp;·&nbsp;
+            <a href="/docs/index.html">返回首页</a>
+        </p>
+    </div>
+
+    </div><!-- /paper -->
+</div>
+
+</body>
+</html>

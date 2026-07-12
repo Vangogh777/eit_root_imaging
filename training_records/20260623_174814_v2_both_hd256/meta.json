@@ -1,0 +1,19 @@
+{
+  "hidden_dim": 256,
+  "gnn_hidden": 256,
+  "gnn_layers": 4,
+  "batch_size": 8,
+  "mode": "both",
+  "epochs_sup": 50,
+  "epochs_unsup": 100,
+  "model_params": 6113121,
+  "lr": 0.0001,
+  "use_model_jacobian": false,
+  "use_gat": false,
+  "n_heads": 4,
+  "mcl_mode": "full_fem",
+  "run_id": "20260623_174814_v2_both_hd256",
+  "name": "v2_both_hd256",
+  "start_time": "2026-06-23T17:48:14.523014",
+  "status": "running"
+}

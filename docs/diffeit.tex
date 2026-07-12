@@ -1,0 +1,275 @@
+
+\usepackage[T1]{fontenc}
+\documentclass[border=6pt, multi, tikz]{standalone}
+\usepackage{import}
+\subimport{/tmp/PlotNeuralNet/layers/}{init}
+\usetikzlibrary{positioning,3d,calc}
+% EIT custom colors (only define new ones, don't override)
+\def\GridColor{rgb:orange,5;yellow,3;white,3}
+\def\GNNColor{rgb:green,5;blue,2;white,3}
+\def\DataColor{rgb:cyan,3;white,6}
+\def\DiffColor{rgb:red,5;orange,2;white,3}
+\def\SensColor{rgb:yellow,5;orange,3;white,3}
+\def\TradColor{rgb:orange,6;red,3;white,3}
+
+\def\ConvColor{rgb:yellow,5;red,2.5;white,5}
+\def\ConvReluColor{rgb:yellow,5;red,5;white,5}
+\def\PoolColor{rgb:red,1;black,0.3}
+\def\UnpoolColor{rgb:blue,2;green,1;black,0.3}
+\def\FcColor{rgb:blue,5;red,2.5;white,5}
+\def\FcReluColor{rgb:blue,5;red,5;white,4}
+\def\SoftmaxColor{rgb:magenta,5;black,7}   
+\def\SumColor{rgb:blue,5;green,15}
+
+\newcommand{\copymidarrow}{\tikz \draw[-Stealth,line width=0.8mm,draw={rgb:blue,4;red,1;green,1;black,3}] (-0.3,0) -- ++(0.3,0);}
+
+\begin{document}
+\begin{tikzpicture}
+\tikzstyle{connection}=[ultra thick,every node/.style={sloped,allow upside down},draw=\edgecolor,opacity=0.7]
+\tikzstyle{copyconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw={rgb:blue,4;red,1;green,1;black,3},opacity=0.7]
+
+\pic[shift={(0,-2,0)}] at (0,0,0)
+    {Box={
+        name=eps,
+        caption={\color{white}\textbf{Noise}},
+        xlabel={{\color{white}\small {B,N,1}}},
+        zlabel={\color{white}\tiny N(0,I)},
+        fill=\DataColor,
+        height=14,
+        width=1.3,
+        depth=18
+        }
+    };
+
+\pic[shift={(1.2,-2,0)}] at (eps-east)
+    {Box={
+        name=diff,
+        caption={\color{white}\textbf{Diffuse}},
+        xlabel={{\color{white}\small {cosine T=200}}},
+        zlabel={\color{white}\tiny DDPM},
+        fill=\DiffColor,
+        height=22,
+        width=2.0,
+        depth=22
+        }
+    };
+\draw [connection] (eps-east) -- (diff-west);
+
+\pic[shift={(1.0,-2,0)}] at (diff-east)
+    {Box={
+        name=time,
+        caption={\color{white}\textbf{TimeEmb}},
+        xlabel={{\color{white}\small {Sinusoidal}}},
+        zlabel={\color{white}\tiny 256d},
+        fill=\SoftmaxColor,
+        height=18,
+        width=1.5,
+        depth=20
+        }
+    };
+\draw [connection] (diff-east) -- (time-west);
+
+\pic[shift={(1.0,-2,0)}] at (time-east)
+    {Box={
+        name=enc0,
+        caption={\color{white}\textbf{L0: FiLM+GNNx2}},
+        xlabel={{\color{white}\small {4424 nodes, 384d}}},
+        zlabel={\color{white}\tiny Encoder},
+        fill=\GNNColor,
+        height=30,
+        width=2.5,
+        depth=26
+        }
+    };
+\draw [connection] (time-east) -- (enc0-west);
+
+\pic[shift={(1.2,0,0)}] at (enc0-east)
+    {Box={
+        name=enc1,
+        caption={\color{white}\textbf{L1: FiLM+GNNx2}},
+        xlabel={{\color{white}\small {FPS /4, 768d}}},
+        zlabel={\color{white}\tiny },
+        fill=\GNNColor,
+        height=24,
+        width=2.2,
+        depth=26
+        }
+    };
+\draw [connection] (enc0-east) -- (enc1-west);
+
+\pic[shift={(1.2,0,0)}] at (enc1-east)
+    {Box={
+        name=enc2,
+        caption={\color{white}\textbf{L2: FiLM+GNNx2}},
+        xlabel={{\color{white}\small {FPS /4, 768d}}},
+        zlabel={\color{white}\tiny },
+        fill=\GNNColor,
+        height=20,
+        width=2.0,
+        depth=24
+        }
+    };
+\draw [connection] (enc1-east) -- (enc2-west);
+
+\pic[shift={(1.2,0,0)}] at (enc2-east)
+    {Box={
+        name=bn,
+        caption={\color{white}\textbf{BN: Self+Cross Attn}},
+        xlabel={{\color{white}\small {4 heads, 4 V tokens}}},
+        zlabel={\color{white}\tiny },
+        fill=\FcColor,
+        height=22,
+        width=2.5,
+        depth=26
+        }
+    };
+\draw [connection] (enc2-east) -- (bn-west);
+
+\pic[shift={(1.5,0,0)}] at (bn-east)
+    {Box={
+        name=dec2,
+        caption={\color{white}\textbf{Dec2: FiLM+GNNx2}},
+        xlabel={{\color{white}\small {Unpool, 768d}}},
+        zlabel={\color{white}\tiny },
+        fill=\UnpoolColor,
+        height=24,
+        width=2.2,
+        depth=26
+        }
+    };
+\draw [connection] (bn-east) -- (dec2-west);
+
+\path (enc2-southeast) -- (enc2-northeast) coordinate[pos=1.25] (enc2-top) ;
+\path (dec2-south)  -- (dec2-north)  coordinate[pos=1.25] (dec2-top) ;
+\draw [copyconnection]  (enc2-northeast)  
+-- node {\copymidarrow}(enc2-top)
+-- node {\copymidarrow}(dec2-top)
+-- node {\copymidarrow} (dec2-north);
+
+\pic[shift={(1.5,0,0)}] at (dec2-east)
+    {Box={
+        name=dec1,
+        caption={\color{white}\textbf{Dec1: FiLM+GNNx2}},
+        xlabel={{\color{white}\small {Unpool, 384d}}},
+        zlabel={\color{white}\tiny },
+        fill=\UnpoolColor,
+        height=28,
+        width=2.2,
+        depth=26
+        }
+    };
+\draw [connection] (dec2-east) -- (dec1-west);
+
+\path (enc1-southeast) -- (enc1-northeast) coordinate[pos=1.25] (enc1-top) ;
+\path (dec1-south)  -- (dec1-north)  coordinate[pos=1.25] (dec1-top) ;
+\draw [copyconnection]  (enc1-northeast)  
+-- node {\copymidarrow}(enc1-top)
+-- node {\copymidarrow}(dec1-top)
+-- node {\copymidarrow} (dec1-north);
+
+\pic[shift={(1.5,0,0)}] at (dec1-east)
+    {Box={
+        name=dec0,
+        caption={\color{white}\textbf{Dec0: FiLM+GNNx2}},
+        xlabel={{\color{white}\small {Unpool, 192d}}},
+        zlabel={\color{white}\tiny },
+        fill=\UnpoolColor,
+        height=32,
+        width=2.2,
+        depth=26
+        }
+    };
+\draw [connection] (dec1-east) -- (dec0-west);
+
+\path (enc0-southeast) -- (enc0-northeast) coordinate[pos=1.25] (enc0-top) ;
+\path (dec0-south)  -- (dec0-north)  coordinate[pos=1.25] (dec0-top) ;
+\draw [copyconnection]  (enc0-northeast)  
+-- node {\copymidarrow}(enc0-top)
+-- node {\copymidarrow}(dec0-top)
+-- node {\copymidarrow} (dec0-north);
+
+\pic[shift={(1.2,0,0)}] at (dec0-east)
+    {Box={
+        name=oh,
+        caption={\color{white}\textbf{OutHead}},
+        xlabel={{\color{white}\small {192 to 1, Tanh}}},
+        zlabel={\color{white}\tiny [-1,1]},
+        fill=\FcColor,
+        height=22,
+        width=1.8,
+        depth=24
+        }
+    };
+\draw [connection] (dec0-east) -- (oh-west);
+
+\pic[shift={(1.0,0,0)}] at (oh-east)
+    {Box={
+        name=inv,
+        caption={\color{white}\textbf{Inv. Transform}},
+        xlabel={{\color{white}\small {N(0,1) to S/m}}},
+        zlabel={\color{white}\tiny clamp},
+        fill=\ConvColor,
+        height=22,
+        width=2.2,
+        depth=24
+        }
+    };
+\draw [connection] (oh-east) -- (inv-west);
+
+\pic[shift={(1.0,0,0)}] at (inv-east)
+    {Box={
+        name=sig2,
+        caption={\color{white}\textbf{sigma}},
+        xlabel={{\color{white}\small {B,N}}},
+        zlabel={\color{white}\tiny Output},
+        fill=\DataColor,
+        height=16,
+        width=1.5,
+        depth=20
+        }
+    };
+\draw [connection] (inv-east) -- (sig2-west);
+
+\pic[shift={(0,3.5,0)}] at (0,0,0)
+    {Box={
+        name=v2,
+        caption={\color{white}\textbf{V}},
+        xlabel={{\color{white}\small {B,6,208}}},
+        zlabel={\color{white}\tiny Voltage},
+        fill=\DataColor,
+        height=14,
+        width=1.3,
+        depth=18
+        }
+    };
+
+\pic[shift={(1.2,3.5,0)}] at (v2-east)
+    {Box={
+        name=venc,
+        caption={\color{white}\textbf{VoltageEnc}},
+        xlabel={{\color{white}\small {Cross-Attn}}},
+        zlabel={\color{white}\tiny 512d},
+        fill=\ConvColor,
+        height=22,
+        width=2.0,
+        depth=22
+        }
+    };
+\draw [connection] (v2-east) -- (venc-west);
+
+\pic[shift={(1.0,3.5,0)}] at (venc-east)
+    {Box={
+        name=sens,
+        caption={\color{white}\textbf{Sensitivity}},
+        xlabel={{\color{white}\small {J^TV, J_energy}}},
+        zlabel={\color{white}\tiny 2ch},
+        fill=\SensColor,
+        height=18,
+        width=2.0,
+        depth=22
+        }
+    };
+\draw [connection] (venc-east) -- (sens-west);
+\draw [connection, draw=blue!60] (venc-east) -- ++(0.2,0) |- (enc0-north);\draw [connection, draw=orange!60] (sens-east) -- ++(0.2,0) |- (enc1-north);
+\end{tikzpicture}
+\end{document}

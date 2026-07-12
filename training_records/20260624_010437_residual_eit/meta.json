@@ -1,0 +1,14 @@
+{
+  "hidden_dim": 256,
+  "gnn_layers": 4,
+  "batch_size": 8,
+  "model_params": 5934433,
+  "mode": "residual_weakly_supervised",
+  "epochs": 100,
+  "learning_rate": 0.0003,
+  "use_gat": false,
+  "run_id": "20260624_010437_residual_eit",
+  "name": "residual_eit",
+  "start_time": "2026-06-24T01:04:42.204989",
+  "status": "running"
+}
